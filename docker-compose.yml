@@ -1,0 +1,81 @@
+# contorell 本機測試環境
+#
+# 一鍵起服務：docker compose up -d
+# 含 Samba AD DC 模擬環境，讓 LDAP 功能能在沒有真實 AD 的情況下被測試。
+#
+# 注意：所有密碼一律由 .env 提供，本檔不含任何硬編碼憑證。
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-contorell}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?請在 .env 設定 POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-contorell}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-contorell}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # 僅綁定 localhost，不對外網開放
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  # Samba AD DC —— 模擬 Active Directory，供無真實 AD 時測試（風險 R-01 的緩解）
+  addc:
+    image: instantlinux/samba-dc:latest
+    hostname: addc
+    environment:
+      DOMAIN_ACTION: provision
+      REALM: ${SAMBA_REALM:-EXAMPLE.LOCAL}
+      DOMAIN: ${SAMBA_DOMAIN:-EXAMPLE}
+      ADMIN_PASSWORD: ${SAMBA_ADMIN_PASSWORD:?請在 .env 設定 SAMBA_ADMIN_PASSWORD}
+      TLS_ENABLED: "yes"
+    volumes:
+      - sambadata:/var/lib/samba
+      - sambaconf:/etc/samba/external
+    ports:
+      - "127.0.0.1:389:389"
+      - "127.0.0.1:636:636"
+    healthcheck:
+      test: ["CMD-SHELL", "samba-tool domain info 127.0.0.1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      SECRET_KEY: ${SECRET_KEY:?請在 .env 設定 SECRET_KEY}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-contorell}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-contorell}
+      LDAP_HOST: ${LDAP_HOST:-addc}
+      LDAP_PORT: ${LDAP_PORT:-636}
+      LDAP_USE_SSL: ${LDAP_USE_SSL:-true}
+      LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=example,DC=local}
+      LDAP_BIND_DN: ${LDAP_BIND_DN:-}
+      LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD:-}
+      # 測試環境使用 Samba 自簽憑證，故關閉驗證。
+      # 正式環境務必設為 true 並提供企業 CA 憑證（IR-06）。
+      LDAP_VERIFY_CERT: ${LDAP_VERIFY_CERT:-false}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?請在 .env 設定 BOOTSTRAP_ADMIN_PASSWORD}
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/login')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  pgdata:
+  sambadata:
+  sambaconf:

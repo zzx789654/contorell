@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% set active_nav = 'sources' %}
+{% block title %}資料來源 — contorell{% endblock %}
+
+{% block content %}
+<h1>資料來源</h1>
+<p class="lead">
+  設定要參與比對的帳號來源。三種來源型態的設定方式一致，學會一種就會其他兩種。
+</p>
+
+{% if sources %}
+  <table class="data-table">
+    <caption class="sr-only">已設定的資料來源清單</caption>
+    <thead>
+      <tr>
+        <th scope="col">名稱</th>
+        <th scope="col">型態</th>
+        <th scope="col">權威來源</th>
+        <th scope="col">最後抓取</th>
+        <th scope="col">狀態</th>
+        <th scope="col"><span class="sr-only">操作</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for source in sources %}
+      <tr>
+        <td>
+          <strong>{{ source.name }}</strong>
+          {% if source.description %}<br><span class="muted">{{ source.description }}</span>{% endif %}
+        </td>
+        <td>
+          {% if source.source_type == 'ldap' %}AD / LDAP
+          {% elif source.source_type == 'api' %}外部 API
+          {% else %}Excel／CSV{% endif %}
+        </td>
+        <td>{% if source.is_authoritative %}<span class="tag">是</span>{% else %}—{% endif %}</td>
+        <td>
+          {% if source.last_fetch_at %}
+            {{ source.last_fetch_at.strftime('%Y-%m-%d %H:%M') }}
+          {% else %}
+            <span class="muted">尚未抓取</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if source.is_active %}
+            <span class="tag tag-ok">啟用中</span>
+          {% else %}
+            <span class="tag tag-off">已停用</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if user.is_admin %}
+            <button class="btn btn-small"
+                    hx-post="/sources/{{ source.id }}/test"
+                    hx-target="#diagnostics-{{ source.id }}"
+                    hx-swap="innerHTML"
+                    hx-indicator="#testing-{{ source.id }}">
+              測試連線
+            </button>
+            <span id="testing-{{ source.id }}" class="htmx-indicator" role="status">
+              <span class="spinner" aria-hidden="true"></span> 測試中⋯⋯
+            </span>
+          {% else %}
+            <span class="muted">唯讀</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td colspan="6" class="diagnostics-row">
+          <div id="diagnostics-{{ source.id }}"></div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="empty-state">
+    <p class="empty-icon" aria-hidden="true">📦</p>
+    <h2>還沒有任何資料來源</h2>
+    <p>資料來源可以是 AD 群組、外部系統 API，或上傳的 Excel／CSV 名單。</p>
+    <p class="muted">
+      提示：先設定一個 AD 來源並勾選「權威來源」，
+      系統才能為您判定離職未回收權限這類高風險項目。
+    </p>
+  </div>
+{% endif %}
+
+{% if not user.is_admin %}
+  <p class="notice notice-info" role="note">
+    您目前的角色是<strong>稽核者</strong>（唯讀），無法新增或修改資料來源。
+  </p>
+{% endif %}
+{% endblock %}

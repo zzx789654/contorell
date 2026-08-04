@@ -1,0 +1,22 @@
+{# 標註儲存成功後回填，維持可繼續編輯的狀態 #}
+<form hx-post="/rows/{{ row_id }}/annotate"
+      hx-target="#annotation-{{ row_id }}-{{ field.key }}"
+      hx-swap="innerHTML">
+  <input type="hidden" name="field_key" value="{{ field.key }}">
+  <label class="sr-only" for="ann-{{ row_id }}-{{ field.key }}">{{ field.label }}</label>
+  {% if field.field_type == 'select' %}
+    <select name="value" id="ann-{{ row_id }}-{{ field.key }}" onchange="this.form.requestSubmit()">
+      <option value="">—</option>
+      {% for option in field.options_json %}
+        <option value="{{ option }}" {% if value == option %}selected{% endif %}>{{ option }}</option>
+      {% endfor %}
+    </select>
+  {% elif field.field_type == 'date' %}
+    <input type="date" name="value" value="{{ value }}"
+           id="ann-{{ row_id }}-{{ field.key }}" onchange="this.form.requestSubmit()">
+  {% else %}
+    <input type="text" name="value" value="{{ value }}"
+           id="ann-{{ row_id }}-{{ field.key }}" onblur="this.form.requestSubmit()">
+  {% endif %}
+  <span class="saved-flag" role="status">已儲存</span>
+</form>

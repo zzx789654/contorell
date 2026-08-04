@@ -1,0 +1,189 @@
+# CI 管線 — 把三維度 Exit Criteria 對應成會擋 build 的 gate（Gate G5）
+#
+# 功能 → 測試通過率
+# 資安 → SAST (bandit) + SCA (pip-audit) + secret scan
+# 品質 → 覆蓋率門檻 + lint
+#
+# 任一 gate 失敗即擋下，不可調寬門檻放行——那等於讓 G3/G4 沒攔住的回歸溜進正式環境。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  # CI 專用的測試值，非真實憑證
+  SECRET_KEY: ci-test-secret-key-with-sufficient-entropy-0123456789
+  DATABASE_URL: sqlite:///./ci_test.db
+  BOOTSTRAP_ADMIN_USERNAME: admin
+  BOOTSTRAP_ADMIN_PASSWORD: CiTest!Admin!Pass1
+
+jobs:
+  # ---------------------------------------------------------------
+  # Gate：品質 — lint 與型別
+  # ---------------------------------------------------------------
+  lint:
+    name: Lint（品質 gate）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: 安裝相依套件
+        run: pip install -e ".[dev]"
+
+      - name: Ruff（程式碼風格與常見錯誤）
+        run: ruff check app tests
+
+      - name: Ruff format 檢查
+        run: ruff format --check app tests
+        continue-on-error: true # 格式尚未全面套用，先不擋 build
+
+  # ---------------------------------------------------------------
+  # Gate：功能 + 品質 — 測試與覆蓋率
+  # ---------------------------------------------------------------
+  test:
+    name: 測試與覆蓋率（功能 + 品質 gate）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: 安裝相依套件
+        run: pip install -e ".[dev]"
+
+      - name: 執行測試並量測覆蓋率
+        # 覆蓋率低於 70% 即失敗（PM 訂定的品質 Exit Criteria）
+        run: |
+          pytest tests/ \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-fail-under=70 \
+            -v
+
+      - name: 上傳覆蓋率報告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 14
+
+  # ---------------------------------------------------------------
+  # Gate：資安 — SAST / SCA / 密鑰掃描
+  # ---------------------------------------------------------------
+  security:
+    name: 資安掃描（資安 gate）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 密鑰掃描需要完整歷史，才能檢查是否曾提交過憑證
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: 安裝相依套件
+        run: pip install -e ".[dev]"
+
+      - name: SAST — Bandit（Critical/High = 0）
+        # -ll 只回報 medium 以上；任何 medium/high 發現都會讓此步驟失敗
+        run: bandit -r app -c pyproject.toml -ll
+
+      - name: SCA — pip-audit（相依套件無已知 CVE）
+        run: pip-audit --desc
+
+      - name: 密鑰掃描 — gitleaks（含 git 歷史）
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 確認 .env 未進版控
+        run: |
+          if git ls-files --error-unmatch .env 2>/dev/null; then
+            echo "::error::.env 已被加入版控，可能洩漏憑證"
+            exit 1
+          fi
+          echo ".env 未進版控 — 通過"
+
+  # ---------------------------------------------------------------
+  # 建置 artifact（供 CD 階段使用）
+  # ---------------------------------------------------------------
+  build:
+    name: 建置映像（產出 artifact）
+    runs-on: ubuntu-latest
+    needs: [lint, test, security] # 所有 gate 通過才建置
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 建置 Docker 映像
+        run: docker build -t contorell:${{ github.sha }} .
+
+      - name: 確認容器以非 root 執行
+        run: |
+          USER_ID=$(docker run --rm contorell:${{ github.sha }} id -u)
+          if [ "$USER_ID" = "0" ]; then
+            echo "::error::容器以 root 執行，違反最小權限原則"
+            exit 1
+          fi
+          echo "容器以 UID $USER_ID 執行 — 通過"
+
+      - name: 匯出映像為 artifact
+        run: docker save contorell:${{ github.sha }} | gzip > contorell-image.tar.gz
+
+      - name: 上傳 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: contorell-image
+          path: contorell-image.tar.gz
+          retention-days: 7
+
+  # ---------------------------------------------------------------
+  # Gate G5 總結
+  # ---------------------------------------------------------------
+  gate-g5:
+    name: Gate G5 — CI 綠燈
+    runs-on: ubuntu-latest
+    needs: [lint, test, security, build]
+    if: always()
+    steps:
+      - name: 判定三維度 Exit Criteria
+        run: |
+          echo "Lint（品質）    : ${{ needs.lint.result }}"
+          echo "測試（功能）    : ${{ needs.test.result }}"
+          echo "資安            : ${{ needs.security.result }}"
+          echo "建置 artifact   : ${{ needs.build.result }}"
+
+          if [ "${{ needs.lint.result }}" != "success" ] || \
+             [ "${{ needs.test.result }}" != "success" ] || \
+             [ "${{ needs.security.result }}" != "success" ] || \
+             [ "${{ needs.build.result }}" != "success" ]; then
+            echo "::error::Gate G5 未通過。請依失敗階段的根因退回對應角色修補，不可調寬門檻放行。"
+            exit 1
+          fi
+
+          echo "Gate G5 通過 — 可進入 CD 階段"

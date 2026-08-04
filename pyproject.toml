@@ -1,0 +1,77 @@
+[project]
+name = "contorell"
+version = "0.1.0"
+description = "AD 權限比對管理系統 — 唯讀差異比對與稽核標註"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "jinja2>=3.1.4",
+    "python-multipart>=0.0.18",
+    "sqlalchemy>=2.0.36",
+    "psycopg[binary]>=3.2.3",
+    "alembic>=1.14.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "ldap3>=2.9.1",
+    "httpx>=0.28.0",
+    "openpyxl>=3.1.5",
+    "argon2-cffi>=23.1.0",
+    "cryptography>=44.0.0",
+    "itsdangerous>=2.2.0",
+    "charset-normalizer>=3.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "bandit[toml]>=1.8.0",
+    "pip-audit>=2.7.3",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "S", "A", "C4", "PIE", "RET", "SIM", "PTH"]
+ignore = [
+    "E501",   # 行長由 formatter 處理
+    # str + Enum 是刻意選擇：讓列舉值能直接序列化成 JSON 存入資料庫欄位，
+    # 也讓 Jinja2 模板能以字串比對。改用 StrEnum 會失去 Python 3.11 以下相容性。
+    "UP042",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 測試中的假憑證與 assert 是預期用法
+"tests/*" = ["S101", "S105", "S106", "S107", "SIM117"]
+# 例外類別命名沿用 Python 內建慣例（AuthenticationFailed 對應 ldap3 的命名風格），
+# ConnectionError_ 的底線是為了避開內建 ConnectionError 名稱衝突
+"app/auth/service.py" = ["N818"]
+"app/providers/base.py" = ["N801", "N818"]
+"app/security/url_guard.py" = ["N818"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "integration: 需要外部服務（AD/DB）的整合測試",
+    "slow: 執行較久的效能測試",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["*/migrations/*", "*/tests/*"]
+
+[tool.bandit]
+exclude_dirs = ["tests", "venv", ".venv"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

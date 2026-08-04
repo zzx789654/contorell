@@ -1,0 +1,120 @@
+<div id="result-table">
+{% if rows %}
+  <table class="data-table result-table">
+    <caption class="sr-only">
+      比對結果，共 {{ total_rows }} 筆，目前顯示第 {{ page }} 頁
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">風險</th>
+        <th scope="col">帳號</th>
+        <th scope="col">顯示名稱</th>
+        <th scope="col">比對狀態</th>
+        <th scope="col">A 狀態</th>
+        <th scope="col">B 狀態</th>
+        <th scope="col">說明</th>
+        {% for field in custom_fields %}
+          <th scope="col">{{ field.label }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr class="risk-row-{{ row.risk_level }}">
+        <td>
+          {# 三重編碼：顏色 + 圖示 + 文字（WCAG 1.4.1，不單靠顏色） #}
+          <span class="risk-badge risk-{{ row.risk_level }}">
+            <span aria-hidden="true">{{ risk_icons[row.risk_level] }}</span>
+            {{ risk_labels[row.risk_level] }}
+          </span>
+        </td>
+        <td class="mono">{{ row.display_identifier }}</td>
+        <td>{{ row.display_name or '—' }}</td>
+        <td>
+          <span class="status-badge status-{{ row.match_status }}">
+            <span aria-hidden="true">{{ status_icons[row.match_status] }}</span>
+            {{ status_labels[row.match_status] }}
+          </span>
+        </td>
+        <td>{{ (row.account_a_json or {}).get('status') | account_status }}</td>
+        <td>{{ (row.account_b_json or {}).get('status') | account_status }}</td>
+        <td class="reason-cell">
+          {% if row.risk_reason %}<p>{{ row.risk_reason }}</p>{% endif %}
+          {% if row.differences_json %}
+            <ul class="diff-list">
+              {% for diff in row.differences_json %}<li>{{ diff }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </td>
+
+        {% for field in custom_fields %}
+          {% set current = annotations.get(row.id, {}).get(field.key, '') %}
+          <td class="annotation-cell" id="annotation-{{ row.id }}-{{ field.key }}">
+            {% if user.is_admin %}
+              {# 就地編輯，縮短操作距離（Fitts's Law） #}
+              <form hx-post="/rows/{{ row.id }}/annotate"
+                    hx-target="#annotation-{{ row.id }}-{{ field.key }}"
+                    hx-swap="innerHTML">
+                <input type="hidden" name="field_key" value="{{ field.key }}">
+                <label class="sr-only" for="ann-{{ row.id }}-{{ field.key }}">
+                  {{ row.display_identifier }} 的{{ field.label }}
+                </label>
+                {% if field.field_type == 'select' %}
+                  <select name="value" id="ann-{{ row.id }}-{{ field.key }}"
+                          onchange="this.form.requestSubmit()">
+                    <option value="">—</option>
+                    {% for option in field.options_json %}
+                      <option value="{{ option }}" {% if current == option %}selected{% endif %}>
+                        {{ option }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                {% elif field.field_type == 'date' %}
+                  <input type="date" name="value" value="{{ current }}"
+                         id="ann-{{ row.id }}-{{ field.key }}"
+                         onchange="this.form.requestSubmit()">
+                {% else %}
+                  <input type="text" name="value" value="{{ current }}"
+                         id="ann-{{ row.id }}-{{ field.key }}"
+                         placeholder="{{ field.help_text or '填寫說明' }}"
+                         onblur="this.form.requestSubmit()">
+                {% endif %}
+              </form>
+            {% else %}
+              {{ current or '—' }}
+            {% endif %}
+          </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if total_pages > 1 %}
+  <nav class="pagination" aria-label="分頁導覽">
+    {% set base = '/comparisons/' ~ comparison.id ~ '?status_filter=' ~ status_filter ~ '&risk_filter=' ~ risk_filter ~ '&q=' ~ q %}
+    {% if page > 1 %}
+      <a href="{{ base }}&page={{ page - 1 }}" rel="prev">← 上一頁</a>
+    {% endif %}
+    <span aria-current="page">第 {{ page }} / {{ total_pages }} 頁</span>
+    {% if page < total_pages %}
+      <a href="{{ base }}&page={{ page + 1 }}" rel="next">下一頁 →</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+
+{% else %}
+  {# empty state：區分「本來就沒資料」與「篩選後沒資料」 #}
+  <div class="empty-state">
+    <p class="empty-icon" aria-hidden="true">🔍</p>
+    {% if status_filter or risk_filter or q %}
+      <h2>目前的篩選條件沒有符合的結果</h2>
+      <p>試著放寬篩選條件，或清除搜尋關鍵字。</p>
+      <a href="/comparisons/{{ comparison.id }}" class="btn">清除所有篩選</a>
+    {% else %}
+      <h2>這次比對沒有產生任何結果</h2>
+      <p>兩個來源都沒有帳號資料。請確認來源設定是否正確、是否成功抓取到資料。</p>
+    {% endif %}
+  </div>
+{% endif %}
+</div>

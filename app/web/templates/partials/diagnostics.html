@@ -1,0 +1,16 @@
+{# 連線診斷結果（IR-07、AC-01）—— 讓管理者能自我診斷相容性問題 #}
+<div class="diagnostics" role="status" aria-live="polite">
+  <h3>{{ source.name }} 連線診斷</h3>
+  <dl class="diagnostics-list">
+    {% for key, value in diagnostics.items() %}
+      <div class="diagnostics-item">
+        <dt>{{ key }}</dt>
+        <dd class="mono">{{ value }}</dd>
+      </div>
+    {% endfor %}
+  </dl>
+  <p class="hint">
+    若連線失敗，請對照上方資訊排查：TLS 版本代表實際協商結果，
+    Windows Server 2025 支援 TLS 1.3、2016～2022 為 TLS 1.2。
+  </p>
+</div>

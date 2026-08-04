@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登入 — contorell</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-page">
+  <main class="login-box">
+    <h1><span aria-hidden="true">⇄</span> contorell</h1>
+    <p class="lead">權限比對管理系統</p>
+
+    {% if error %}
+      {# error state：訊息一律通用，不透露帳號是否存在 #}
+      <div class="notice notice-error" role="alert">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/login" class="stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+      <div class="field">
+        <label for="username">帳號</label>
+        <input type="text" id="username" name="username" value="{{ username or '' }}"
+               autocomplete="username" required autofocus
+               aria-describedby="username-hint">
+        <p id="username-hint" class="hint">請使用您的 AD 網域帳號登入。</p>
+      </div>
+
+      <div class="field">
+        <label for="password">密碼</label>
+        <input type="password" id="password" name="password"
+               autocomplete="current-password" required>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-large">登入</button>
+    </form>
+
+    <p class="footnote">
+      本系統為<strong>唯讀</strong>稽核工具，不會修改 AD 或任何外部系統的資料。
+    </p>
+  </main>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}操作失敗 — contorell{% endblock %}
+
+{% block content %}
+<div class="notice notice-error" role="alert">
+  <h1>操作失敗</h1>
+  <p>{{ message }}</p>
+  {% if remediation %}
+    <p class="remediation"><strong>建議做法：</strong>{{ remediation }}</p>
+  {% endif %}
+  <p class="muted">錯誤分類：{{ category }}</p>
+</div>
+<p><a href="/" class="btn">回到首頁</a></p>
+{% endblock %}

@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% set active_nav = 'compare' %}
+{% block title %}{{ comparison.name }} — 比對結果{% endblock %}
+
+{% block content %}
+<nav aria-label="麵包屑" class="breadcrumb">
+  <a href="/">比對</a> <span aria-hidden="true">/</span> <span>比對結果</span>
+</nav>
+
+<h1>{{ comparison.name }}</h1>
+<p class="lead">
+  比對時間 {{ comparison.compared_at.strftime('%Y-%m-%d %H:%M') }}，
+  執行者 {{ comparison.compared_by }}
+</p>
+
+{# 資料完整性警告：讓分頁截斷等問題浮現，而非靜默通過（風險 R-02） #}
+{% if comparison.warnings_json %}
+  <div class="notice notice-warning" role="alert">
+    <h2>資料完整性提醒</h2>
+    <ul>
+      {% for warning in comparison.warnings_json %}<li>{{ warning }}</li>{% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
+{# 來源筆數供人工交叉檢查 #}
+<section class="summary-cards" aria-label="比對摘要">
+  <div class="card">
+    <p class="card-label">來源 A</p>
+    <p class="card-value">{{ comparison.source_a_count }}</p>
+    <p class="card-note">{{ comparison.source_a_label }}</p>
+  </div>
+  <div class="card">
+    <p class="card-label">來源 B</p>
+    <p class="card-value">{{ comparison.source_b_count }}</p>
+    <p class="card-note">{{ comparison.source_b_label }}</p>
+  </div>
+  {% set risk_counts = comparison.risk_counts_json or {} %}
+  <div class="card card-risk-high">
+    <p class="card-label"><span aria-hidden="true">▲</span> 高風險</p>
+    <p class="card-value">{{ risk_counts.get('high', 0) }}</p>
+    <p class="card-note">需優先處理</p>
+  </div>
+  <div class="card">
+    <p class="card-label">比對總筆數</p>
+    <p class="card-value">{{ total_rows }}</p>
+    <p class="card-note">符合目前篩選條件</p>
+  </div>
+</section>
+
+<div class="toolbar">
+  <form method="get" action="/comparisons/{{ comparison.id }}" class="filter-form"
+        hx-get="/comparisons/{{ comparison.id }}"
+        hx-target="#result-table" hx-select="#result-table" hx-swap="outerHTML"
+        hx-indicator="#table-loading">
+    <div class="field field-inline">
+      <label for="risk_filter">風險等級</label>
+      <select name="risk_filter" id="risk_filter" onchange="this.form.requestSubmit()">
+        <option value="">全部</option>
+        {% for risk in risk_levels %}
+          <option value="{{ risk.value }}" {% if risk_filter == risk.value %}selected{% endif %}>
+            {{ risk_labels[risk.value] }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field field-inline">
+      <label for="status_filter">比對狀態</label>
+      <select name="status_filter" id="status_filter" onchange="this.form.requestSubmit()">
+        <option value="">全部</option>
+        {% for st in match_statuses %}
+          <option value="{{ st.value }}" {% if status_filter == st.value %}selected{% endif %}>
+            {{ status_labels[st.value] }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field field-inline">
+      <label for="q">搜尋帳號</label>
+      <input type="search" name="q" id="q" value="{{ q }}" placeholder="輸入帳號關鍵字">
+    </div>
+
+    <button type="submit" class="btn">套用篩選</button>
+    <span id="table-loading" class="htmx-indicator" role="status">
+      <span class="spinner" aria-hidden="true"></span> 載入中⋯⋯
+    </span>
+  </form>
+
+  <div class="export-actions">
+    <a href="/comparisons/{{ comparison.id }}/export?fmt=xlsx" class="btn">匯出 Excel</a>
+    <a href="/comparisons/{{ comparison.id }}/export?fmt=csv" class="btn">匯出 CSV</a>
+  </div>
+</div>
+
+{% include "partials/result_table.html" %}
+{% endblock %}

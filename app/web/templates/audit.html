@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% set active_nav = 'audit' %}
+{% block title %}稽核軌跡 — contorell{% endblock %}
+
+{% block content %}
+<h1>稽核軌跡</h1>
+<p class="lead">誰在何時、對什麼、做了什麼。僅追加不修改，顯示最近 200 筆。</p>
+
+{% if logs %}
+  <table class="data-table">
+    <caption class="sr-only">系統操作稽核紀錄</caption>
+    <thead>
+      <tr>
+        <th scope="col">時間</th>
+        <th scope="col">操作者</th>
+        <th scope="col">動作</th>
+        <th scope="col">對象</th>
+        <th scope="col">細節</th>
+        <th scope="col">來源 IP</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in logs %}
+      <tr>
+        <td class="mono">{{ log.occurred_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        <td>{{ log.actor_username }}</td>
+        <td>
+          <span class="tag {% if 'failed' in log.action or 'denied' in log.action %}tag-warn{% endif %}">
+            {{ audit_action_labels.get(log.action, log.action) }}
+          </span>
+        </td>
+        <td>{{ log.target_type }}{% if log.target_id %} #{{ log.target_id }}{% endif %}</td>
+        <td>{{ log.detail or '—' }}</td>
+        <td class="mono muted">{{ log.ip_address or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="empty-state">
+    <p class="empty-icon" aria-hidden="true">📋</p>
+    <h2>還沒有任何稽核紀錄</h2>
+    <p>登入、抓取來源、執行比對、修改標註等操作都會記錄在這裡。</p>
+  </div>
+{% endif %}
+{% endblock %}

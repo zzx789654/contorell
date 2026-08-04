@@ -1,0 +1,40 @@
+# === 機密：絕不進版控 ===
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+.venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# 上傳與匯出的暫存檔（可能含人員個資）
+uploads/
+exports/
+*.xlsx
+!tests/fixtures/*.xlsx
+
+# 安全掃描報告（可能含路徑細節）
+security-reports/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

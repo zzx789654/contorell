@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}contorell 權限比對{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+{# hx-headers 讓所有 HTMX 請求自動帶上 CSRF token，
+   不必在每個 hx-post 各自設定，避免漏掉（FIND-001） #}
+<body hx-headers='{"X-CSRF-Token": "{{ csrf_token(request) }}"}'>
+  <a href="#main" class="skip-link">跳到主要內容</a>
+
+  {% if user %}
+  <header class="site-header">
+    <nav aria-label="主要導覽">
+      <a href="/" class="brand" aria-label="contorell 首頁">
+        <span aria-hidden="true">⇄</span> contorell
+      </a>
+      <ul class="nav-list">
+        <li><a href="/" {% if active_nav == 'compare' %}aria-current="page"{% endif %}>比對</a></li>
+        <li><a href="/sources" {% if active_nav == 'sources' %}aria-current="page"{% endif %}>資料來源</a></li>
+        <li><a href="/audit" {% if active_nav == 'audit' %}aria-current="page"{% endif %}>稽核軌跡</a></li>
+      </ul>
+      <div class="user-box">
+        <span class="user-name">
+          {{ user.display_name or user.username }}
+          <span class="role-badge">{{ '管理者' if user.is_admin else '稽核者' }}</span>
+        </span>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+          <button type="submit" class="btn btn-plain">登出</button>
+        </form>
+      </div>
+    </nav>
+  </header>
+  {% endif %}
+
+  <main id="main" class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <p>contorell — 唯讀權限比對工具。本系統不會修改 AD 或外部系統的任何資料。</p>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

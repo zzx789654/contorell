@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% set active_nav = 'compare' %}
+{% block title %}新增比對 — contorell{% endblock %}
+
+{% block content %}
+<h1>新增比對</h1>
+<p class="lead">選擇兩個資料來源，系統會抓取最新名單並找出差異。</p>
+
+{% if sources|length < 2 %}
+  {# empty state：來源不足以比對 #}
+  <div class="empty-state" role="region" aria-labelledby="empty-title">
+    <p class="empty-icon" aria-hidden="true">⚙</p>
+    <h2 id="empty-title">還需要設定資料來源</h2>
+    <p>
+      比對至少需要兩個資料來源。目前已設定
+      <strong>{{ sources|length }}</strong> 個。
+    </p>
+    <p>資料來源可以是 AD 群組、外部系統 API，或上傳的 Excel／CSV 名單。</p>
+    <a href="/sources" class="btn btn-primary">前往設定資料來源</a>
+  </div>
+{% else %}
+  <form method="post" action="/compare" class="compare-form" id="compare-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+    <div class="source-picker">
+      <div class="source-column">
+        <label for="source_a_id">
+          來源 A
+          <span class="hint">通常選 AD（權威來源）</span>
+        </label>
+        <select name="source_a_id" id="source_a_id" required>
+          <option value="">— 請選擇 —</option>
+          {% for source in sources %}
+            <option value="{{ source.id }}" {% if source.is_authoritative %}selected{% endif %}>
+              {{ source.name }}{% if source.is_authoritative %}（權威來源）{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="compare-arrow" aria-hidden="true">⇄</div>
+
+      <div class="source-column">
+        <label for="source_b_id">
+          來源 B
+          <span class="hint">要比對的外部系統或另一個群組</span>
+        </label>
+        <select name="source_b_id" id="source_b_id" required>
+          <option value="">— 請選擇 —</option>
+          {% for source in sources %}
+            <option value="{{ source.id }}">{{ source.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    {% if user.is_admin %}
+      <button type="submit" class="btn btn-primary btn-large" id="compare-submit">
+        開始比對
+      </button>
+      {# loading state：抓取可能耗時，須有明確進度回饋（Nielsen #1） #}
+      <p class="loading-note" id="compare-loading" hidden>
+        <span class="spinner" aria-hidden="true"></span>
+        正在抓取兩個來源的名單並比對，大型群組可能需要一分鐘⋯⋯
+      </p>
+    {% else %}
+      {# 無權限 state #}
+      <p class="notice notice-info" role="note">
+        您目前的角色是<strong>稽核者</strong>（唯讀），無法執行比對。
+        如需執行比對，請聯繫管理者調整權限。
+      </p>
+    {% endif %}
+  </form>
+{% endif %}
+
+<section class="recent" aria-labelledby="recent-title">
+  <h2 id="recent-title">最近的比對</h2>
+
+  {% if recent_comparisons %}
+    <table class="data-table">
+      <caption class="sr-only">最近執行的比對紀錄</caption>
+      <thead>
+        <tr>
+          <th scope="col">比對</th>
+          <th scope="col">執行時間</th>
+          <th scope="col">執行者</th>
+          <th scope="col" class="num">高風險</th>
+          <th scope="col"><span class="sr-only">操作</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in recent_comparisons %}
+        <tr>
+          <td>{{ item.name }}</td>
+          <td>{{ item.compared_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ item.compared_by }}</td>
+          <td class="num">
+            {% set high = (item.risk_counts_json or {}).get('high', 0) %}
+            {% if high > 0 %}
+              <span class="risk-badge risk-high">
+                <span aria-hidden="true">▲</span> {{ high }}
+              </span>
+            {% else %}
+              <span class="muted">0</span>
+            {% endif %}
+          </td>
+          <td><a href="/comparisons/{{ item.id }}">檢視結果</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">還沒有任何比對紀錄。完成第一次比對後，紀錄會顯示在這裡。</p>
+  {% endif %}
+</section>
+
+<script>
+  // 送出後顯示 loading 並停用按鈕，避免重複送出（Nielsen #1 狀態可見性）
+  document.getElementById('compare-form')?.addEventListener('submit', function () {
+    var button = document.getElementById('compare-submit');
+    var loading = document.getElementById('compare-loading');
+    if (button) { button.disabled = true; button.textContent = '比對中⋯⋯'; }
+    if (loading) { loading.hidden = false; }
+  });
+</script>
+{% endblock %}
