@@ -1,0 +1,27 @@
+# gitleaks 設定 — 密鑰掃描
+#
+# 原則：**盡量不靠豁免清單**。測試用的金鑰一律以程式組合產生
+# （見 tests/test_crypto.py、tests/test_web.py），而非寫成長字面值，
+# 從根本上避免被判定為疑似憑證——豁免清單會隨新測試不斷需要維護，
+# 且容易在某次擴充時意外放行真的密鑰。
+#
+# 真正的憑證一律走環境變數（見 .env.example），`.env` 已列入 .gitignore。
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "全域允許清單"
+
+paths = [
+  # 相依套件與建置產物，不屬於本專案的程式碼
+  '''(^|/)\.venv/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)__pycache__/''',
+
+  # 前端第三方函式庫（htmx 官方發行版，未經修改）
+  '''app/web/static/htmx\.min\.js$''',
+
+  # 依定義只含佔位符（CHANGE_ME）的環境變數範本
+  '''\.env\.example$''',
+]

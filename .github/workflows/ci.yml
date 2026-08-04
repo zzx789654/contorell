@@ -24,11 +24,6 @@ concurrency:
 
 env:
   PYTHON_VERSION: "3.12"
-  # CI 專用的測試值，非真實憑證
-  SECRET_KEY: ci-test-secret-key-with-sufficient-entropy-0123456789
-  DATABASE_URL: sqlite:///./ci_test.db
-  BOOTSTRAP_ADMIN_USERNAME: admin
-  BOOTSTRAP_ADMIN_PASSWORD: CiTest!Admin!Pass1
 
 jobs:
   # ---------------------------------------------------------------
@@ -71,6 +66,17 @@ jobs:
 
       - name: 安裝相依套件
         run: pip install -e ".[dev]"
+
+      - name: 產生本次執行專用的測試金鑰
+        # 於執行期隨機產生，不在原始碼中留下任何密鑰樣式的字面值。
+        # 這些值只存在於本次 job 的臨時容器中，結束即銷毀。
+        run: |
+          {
+            echo "SECRET_KEY=$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+            echo "DATABASE_URL=sqlite:///./ci_test.db"
+            echo "BOOTSTRAP_ADMIN_USERNAME=ci-admin"
+            echo "BOOTSTRAP_ADMIN_PASSWORD=$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
+          } >> "$GITHUB_ENV"
 
       - name: 執行測試並量測覆蓋率
         # 覆蓋率低於 70% 即失敗（PM 訂定的品質 Exit Criteria）
