@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "contorell"
 version = "0.1.0"
@@ -32,6 +36,13 @@ dev = [
     "bandit[toml]>=1.8.0",
     "pip-audit>=2.7.3",
 ]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+# 模板與靜態資源必須隨套件一起安裝，否則容器內會缺少畫面與樣式
+app = ["web/templates/**/*.html", "web/static/*"]
 
 [tool.ruff]
 line-length = 100
