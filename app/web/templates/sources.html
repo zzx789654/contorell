@@ -3,10 +3,17 @@
 {% block title %}資料來源 — contorell{% endblock %}
 
 {% block content %}
-<h1>資料來源</h1>
-<p class="lead">
-  設定要參與比對的帳號來源。三種來源型態的設定方式一致，學會一種就會其他兩種。
-</p>
+<div class="page-header">
+  <div>
+    <h1>資料來源</h1>
+    <p class="lead">
+      設定要參與比對的帳號來源。三種來源型態的設定方式一致，學會一種就會其他兩種。
+    </p>
+  </div>
+  {% if user.is_admin %}
+    <a href="/sources/new" class="btn btn-primary">新增 AD 來源</a>
+  {% endif %}
+</div>
 
 {% if sources %}
   <table class="data-table">
@@ -50,6 +57,9 @@
         </td>
         <td>
           {% if user.is_admin %}
+            {% if source.source_type == 'ldap' %}
+              <a href="/sources/{{ source.id }}/edit" class="btn btn-small">編輯設定</a>
+            {% endif %}
             <button class="btn btn-small"
                     hx-post="/sources/{{ source.id }}/test"
                     hx-target="#diagnostics-{{ source.id }}"
@@ -60,6 +70,12 @@
             <span id="testing-{{ source.id }}" class="htmx-indicator" role="status">
               <span class="spinner" aria-hidden="true"></span> 測試中⋯⋯
             </span>
+            <form method="post" action="/sources/{{ source.id }}/toggle" class="inline-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+              <button type="submit" class="btn btn-small btn-plain">
+                {{ '停用' if source.is_active else '啟用' }}
+              </button>
+            </form>
           {% else %}
             <span class="muted">唯讀</span>
           {% endif %}
@@ -82,6 +98,9 @@
       提示：先設定一個 AD 來源並勾選「權威來源」，
       系統才能為您判定離職未回收權限這類高風險項目。
     </p>
+    {% if user.is_admin %}
+      <a href="/sources/new" class="btn btn-primary">新增第一個 AD 來源</a>
+    {% endif %}
   </div>
 {% endif %}
 

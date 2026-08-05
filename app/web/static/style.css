@@ -498,3 +498,259 @@ select {
   :root { --border: #000; --text-muted: #333; }
   .btn { border-width: 2px; }
 }
+
+/* --- 資料來源設定表單（Round 2）---
+ *
+ * 每個欄位的結構固定為：標籤 → 輸入 → 一行說明 → 可展開細節。
+ * 說明文字使用 --text-muted（對白底 5.6:1，達 WCAG AA），
+ * 不因為「只是提示」就降低對比。
+ */
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+.page-header .lead { margin-bottom: 0; }
+
+.breadcrumb {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+}
+
+.config-form fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 1.25rem 1.5rem 1.5rem;
+  margin: 0 0 1.5rem;
+}
+
+.config-form legend {
+  font-weight: 600;
+  font-size: 1.05rem;
+  padding: 0 0.5rem;
+}
+
+.fieldset-hint {
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  margin: 0 0 1.25rem;
+}
+
+.form-row { margin-bottom: 1.5rem; }
+.form-row:last-child { margin-bottom: 0; }
+
+.form-row > label,
+.form-row .label-like {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.form-row input[type="text"],
+.form-row input[type="password"],
+.form-row input[type="number"],
+.form-row select,
+.form-row textarea {
+  width: 100%;
+  max-width: 34rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+  background: var(--surface);
+  color: var(--text);
+  /* 觸控目標高度 ≥ 44px */
+  min-height: 44px;
+}
+
+.form-row input:focus-visible,
+.form-row select:focus-visible,
+.form-row textarea:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.required { color: var(--error-text); }
+
+.field-hint {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  margin: 0.35rem 0 0;
+  max-width: 42rem;
+  line-height: 1.5;
+}
+.field-hint.small { font-size: 0.82rem; }
+
+/* 錯誤以「顏色 + 圖示 + 文字」三重編碼，不單靠顏色（WCAG 1.4.1） */
+.field-error {
+  color: var(--error-text);
+  font-size: 0.88rem;
+  font-weight: 600;
+  margin: 0.35rem 0 0;
+  max-width: 42rem;
+}
+.field-error::before { content: "⚠ "; }
+
+.has-error input,
+.has-error select,
+.has-error textarea {
+  border-color: var(--error-text);
+  border-width: 2px;
+}
+
+.field-detail {
+  margin-top: 0.5rem;
+  max-width: 42rem;
+  border-left: 3px solid var(--border);
+  padding-left: 0.75rem;
+}
+.field-detail summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-size: 0.88rem;
+  padding: 0.25rem 0;
+}
+.field-detail summary:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+.field-detail-body {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+.field-detail-body p { margin: 0.4rem 0; }
+.field-detail-body code {
+  background: var(--risk-none-bg);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  font-size: 0.9em;
+  word-break: break-all;
+}
+
+.form-check {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.6rem;
+  align-items: start;
+}
+.form-check input[type="checkbox"] {
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-top: 0.2rem;
+}
+.form-check > label { margin-bottom: 0; }
+.form-check .field-hint { grid-column: 2; }
+
+.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: normal;
+  margin-bottom: 0.5rem;
+  min-height: 44px;
+}
+.inline-check input[type="checkbox"] { width: 1.15rem; height: 1.15rem; }
+
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: 1rem;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+.checkbox-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.2rem 0.5rem;
+  align-items: start;
+}
+.checkbox-item input[type="checkbox"] {
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-top: 0.2rem;
+}
+.checkbox-item label { font-weight: 600; font-size: 0.92rem; }
+.checkbox-item .field-hint { grid-column: 2; margin-top: 0.15rem; }
+
+.template-list dt {
+  font-weight: 600;
+  margin-top: 0.75rem;
+  color: var(--text);
+}
+.template-list dd { margin: 0.2rem 0 0.5rem; }
+.template-list .mono {
+  display: block;
+  background: var(--risk-none-bg);
+  padding: 0.4rem 0.5rem;
+  border-radius: 3px;
+  word-break: break-all;
+  margin: 0.3rem 0;
+}
+
+.form-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 2rem 0;
+  flex-wrap: wrap;
+}
+
+.diagnostics-section {
+  border-top: 2px solid var(--border);
+  padding-top: 1.5rem;
+  margin-top: 2.5rem;
+}
+
+.tool-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.25rem;
+}
+.tool-card h3 { margin-top: 0; }
+
+.inline-form {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.inline-form input[type="text"] {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+  min-height: 44px;
+}
+
+.lookup-result { margin-top: 1rem; }
+.group-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+  max-height: 22rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.group-list li {
+  padding: 0.4rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+  word-break: break-all;
+}
+.group-list li:last-child { border-bottom: none; }
+
+@media (max-width: 700px) {
+  .config-form fieldset { padding: 1rem; }
+  .checkbox-grid { grid-template-columns: 1fr; }
+  .page-header { flex-direction: column; }
+  .form-actions { flex-direction: column; align-items: stretch; }
+}

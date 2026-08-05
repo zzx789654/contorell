@@ -1,0 +1,41 @@
+{# 反查某帳號所屬群組（含巢狀繼承）—— 設定頁的驗證工具 #}
+{% if error %}
+  <div class="notice notice-error" role="alert">
+    <strong>查詢失敗</strong>
+    <p>{{ error.message }}</p>
+    {% if error.remediation %}<p class="hint">{{ error.remediation }}</p>{% endif %}
+  </div>
+{% elif result %}
+  {% if not result.user_dn %}
+    <div class="notice notice-warning" role="status">
+      <strong>查無帳號「{{ result.account }}」</strong>
+      <p>{{ result.message }}</p>
+    </div>
+  {% else %}
+    <div class="lookup-result" role="status" aria-live="polite">
+      <h4>
+        {{ result.display_name or result.account }}
+        <span class="muted">（{{ result.account }}）</span>
+      </h4>
+      <p class="mono small">{{ result.user_dn }}</p>
+
+      {% if result.groups %}
+        <p>共隸屬於 <strong>{{ result.groups|length }}</strong> 個群組（含透過子群組繼承的）：</p>
+        <ul class="group-list">
+          {% for dn in result.groups %}
+            <li class="mono small">{{ dn }}</li>
+          {% endfor %}
+        </ul>
+        <p class="hint">
+          若上方「群組 DN」欄位填的內容有出現在這份清單裡，代表這個帳號會被抓進來。
+        </p>
+      {% else %}
+        <p class="muted">這個帳號不隸屬於任何群組。</p>
+        <p class="hint">
+          若這不符合預期，請確認服務帳號是否有讀取群組成員的權限，
+          以及該帳號是否位於 Base DN 的範圍內。
+        </p>
+      {% endif %}
+    </div>
+  {% endif %}
+{% endif %}

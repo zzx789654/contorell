@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import logging
 import ssl
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
-from ldap3 import ALL, SIMPLE, Connection, Server, Tls
+from ldap3 import ALL, BASE, LEVEL, SIMPLE, SUBTREE, Connection, Server, Tls
 from ldap3.core.exceptions import (
     LDAPBindError,
     LDAPCertificateError,
@@ -37,6 +37,15 @@ from app.providers.base import (
     ConnectionError_,
     FetchResult,
     TlsError,
+)
+from app.providers.ldap_queries import (
+    DEFAULT_TEMPLATE_KEY,
+    SearchScope,
+    build_attribute_list,
+    build_query_filter,
+    build_user_groups_filter,
+    build_user_lookup_filter,
+    get_template,
 )
 from app.security.ldap_escape import build_filter, escape_filter_value
 
@@ -65,6 +74,14 @@ USER_ATTRIBUTES = [
 
 # 遞迴展開的深度上限 —— 防止循環群組參照造成無限遞迴（風險 R-03）
 MAX_NESTING_DEPTH = 20
+
+# 把設定用的 SearchScope 對應到 ldap3 的常數。
+# 分成兩層是為了讓 config_json 存的是穩定的字串值，不綁定 ldap3 的內部表示。
+_LDAP3_SCOPE = {
+    SearchScope.SUBTREE: SUBTREE,
+    SearchScope.LEVEL: LEVEL,
+    SearchScope.BASE: BASE,
+}
 
 
 class NestingStrategy(str, Enum):
@@ -104,6 +121,9 @@ class LdapConfig:
     page_size: int = 1000
     nesting_strategy: NestingStrategy = NestingStrategy.RECURSIVE
     receive_timeout: int = 30
+    search_scope: SearchScope = SearchScope.SUBTREE
+    extra_attributes: list[str] = field(default_factory=list)
+    """額外要抓取的 AD 屬性。經 ldap_queries 的白名單驗證，不接受任意名稱。"""
 
     def validate(self) -> None:
         """驗證設定，拒絕不安全的組合。
@@ -131,6 +151,10 @@ class LdapConfig:
                 f"page_size 必須介於 1~1000，收到 {self.page_size}。"
                 "AD 的 MaxPageSize 硬性上限為 1000。"
             )
+
+        # 白名單驗證：不在允許清單中的屬性名在此就被擋下，
+        # 而不是等到查詢時才靜默回傳空欄位。
+        build_attribute_list(self.extra_attributes)
 
 
 def _build_tls_config(config: LdapConfig) -> Tls:
@@ -177,22 +201,55 @@ class LdapProvider(AccountProvider):
         config: LdapConfig,
         *,
         group_dn: str | None = None,
-        user_filter: str | None = None,
+        template_key: str = DEFAULT_TEMPLATE_KEY,
+        template_parameters: dict[str, str] | None = None,
         label: str = "",
     ) -> None:
         """
         Args:
             config: 連線設定。
-            group_dn: 要抓取成員的群組 DN。None 表示抓取 base_dn 下所有使用者。
-            user_filter: 額外的 LDAP filter 條件（僅限程式內常數，不接受使用者輸入）。
+            group_dn: 要抓取成員的群組 DN。設定時走群組成員展開路徑（IR-04），
+                此時 ``template_key`` 不適用。
+            template_key: 查詢範本代號（見 :mod:`app.providers.ldap_queries`）。
+                管理者只能從預先定義的範本中選擇，不能提供原始 filter——
+                這是 CWE-90 的防線，不提供繞過選項。
+            template_parameters: 範本所需的值（未受信任，會被轉義）。
             label: 供 UI 顯示的名稱。
         """
         config.validate()
         self._config = config
         self._group_dn = group_dn
-        self._user_filter = user_filter
+        self._template_key = template_key
+        self._template_parameters = dict(template_parameters or {})
         self._label = label or (group_dn or config.base_dn)
         self._diagnostics: dict[str, str] = {}
+        self._attributes = build_attribute_list(config.extra_attributes)
+
+        # 提早組一次 filter，讓設定錯誤在建立來源當下就爆出來，
+        # 而不是等到實際抓取時才失敗。
+        if group_dn is None:
+            self._search_filter = build_query_filter(template_key, self._template_parameters)
+        else:
+            self._search_filter = ""
+
+    @property
+    def search_filter(self) -> str:
+        """實際會送出的 LDAP filter，供設定頁預覽（讓管理者看得到自己設了什麼）。"""
+        if self._group_dn:
+            return self._group_member_filter(self._group_dn)
+        return self._search_filter
+
+    def _group_member_filter(self, group_dn: str) -> str:
+        """群組成員查詢的 filter，依巢狀策略而不同。"""
+        if self._config.nesting_strategy is NestingStrategy.IN_CHAIN:
+            return (
+                f"(&(objectCategory=person)(objectClass=user)"
+                f"(memberOf:{MATCHING_RULE_IN_CHAIN}:={escape_filter_value(group_dn)}))"
+            )
+        return build_filter(
+            "(&(objectCategory=person)(objectClass=user)(memberOf={group}))",
+            group=group_dn,
+        )
 
     @property
     def label(self) -> str:
@@ -364,6 +421,7 @@ class LdapProvider(AccountProvider):
         generator = conn.extend.standard.paged_search(
             search_base=search_base or self._config.base_dn,
             search_filter=search_filter,
+            search_scope=_LDAP3_SCOPE[self._config.search_scope],
             attributes=attributes,
             paged_size=self._config.page_size,
             generator=True,
@@ -397,7 +455,7 @@ class LdapProvider(AccountProvider):
             f"(&(objectCategory=person)(objectClass=user)"
             f"(memberOf:{MATCHING_RULE_IN_CHAIN}:={escape_filter_value(group_dn)}))"
         )
-        return self._paged_search(conn, search_filter, USER_ATTRIBUTES)
+        return self._paged_search(conn, search_filter, self._attributes)
 
     def _fetch_direct(self, conn: Connection, group_dn: str) -> list[dict[str, Any]]:
         """只取直接成員，不展開巢狀群組。"""
@@ -405,7 +463,7 @@ class LdapProvider(AccountProvider):
             "(&(objectCategory=person)(objectClass=user)(memberOf={group}))",
             group=group_dn,
         )
-        return self._paged_search(conn, search_filter, USER_ATTRIBUTES)
+        return self._paged_search(conn, search_filter, self._attributes)
 
     def _fetch_recursive(self, conn: Connection, group_dn: str) -> list[dict[str, Any]]:
         """在應用端逐層展開巢狀群組。
@@ -467,12 +525,13 @@ class LdapProvider(AccountProvider):
                         "若群組含子群組，成員數會少於實際人數。"
                     )
             else:
-                base_filter = "(&(objectCategory=person)(objectClass=user))"
-                if self._user_filter:
-                    base_filter = f"(&{base_filter}{self._user_filter})"
-                raw_entries = self._paged_search(conn, base_filter, USER_ATTRIBUTES)
+                # 範本已在建構時組好並轉義（見 __init__）
+                raw_entries = self._paged_search(conn, self._search_filter, self._attributes)
+                warnings.append(
+                    f"查詢範本：{get_template(self._template_key).label}"
+                )
 
-            accounts = [self._to_account(entry) for entry in raw_entries]
+            accounts = [self._to_account(entry, self._config.extra_attributes) for entry in raw_entries]
             accounts = [acc for acc in accounts if acc is not None]  # type: ignore[misc]
 
             skipped = len(raw_entries) - len(accounts)
@@ -511,12 +570,88 @@ class LdapProvider(AccountProvider):
             except LDAPExceptionError:
                 diagnostics["base_dn"] = f"{self._config.base_dn}（**查無此 DN，請確認拼寫**）"
 
+            # 讓管理者看到實際會送出的 filter，以及它會撈到多少人。
+            # 這是「設定對不對」最直接的回饋——比對結果筆數不如預期時，
+            # 管理者能立刻分辨是 filter 寫錯還是 AD 真的就這些人。
+            diagnostics["search_filter"] = self.search_filter
+            diagnostics["search_scope"] = self._config.search_scope.value
+            diagnostics["attributes"] = "、".join(self._attributes)
+
+            try:
+                matched = self._paged_search(
+                    conn, self.search_filter, ["sAMAccountName"]
+                )
+                diagnostics["estimated_count"] = f"{len(matched)} 筆"
+                if not matched:
+                    diagnostics["estimated_count"] += (
+                        "（**查無資料**，請確認 Base DN、查詢範本與參數是否正確）"
+                    )
+            except LDAPExceptionError as exc:
+                diagnostics["estimated_count"] = f"無法預估：{exc}"
+
             return diagnostics
         finally:
             conn.unbind()
 
+    def find_user_groups(self, account_name: str) -> dict[str, Any]:
+        """反查某個帳號隸屬於哪些群組（含巢狀繼承）。
+
+        對應參考做法的 ``(member:1.2.840.113556.1.4.1941:=<使用者DN>)``。
+        這是設定頁的**診斷工具**——用來確認「我要設定的群組 DN 對不對」、
+        「這個人為什麼會出現在比對結果裡」，而非獨立的查詢子系統
+        （見 CoreMain.md：不新增第五個概念）。
+
+        Args:
+            account_name: AD 登入帳號（sAMAccountName），未受信任會被轉義。
+
+        Returns:
+            含 ``account``、``user_dn``、``groups``（DN 清單）的字典。
+            查無帳號時 ``user_dn`` 為空字串、``groups`` 為空清單。
+
+        Raises:
+            ProviderError: 連線或查詢失敗。
+        """
+        conn = self._connect()
+        try:
+            users = self._paged_search(
+                conn,
+                build_user_lookup_filter(account_name),
+                ["sAMAccountName", "displayName", "distinguishedName"],
+            )
+            if not users:
+                return {
+                    "account": account_name,
+                    "user_dn": "",
+                    "display_name": "",
+                    "groups": [],
+                    "message": "查無此帳號。請確認登入帳號拼寫，以及該帳號位於 Base DN 範圍內。",
+                }
+
+            user_dn = users[0].get("dn", "")
+            display_name = _first_value(
+                users[0].get("attributes", {}).get("displayName")
+            )
+
+            groups = self._paged_search(
+                conn,
+                build_user_groups_filter(user_dn),
+                ["cn", "distinguishedName"],
+            )
+
+            return {
+                "account": account_name,
+                "user_dn": user_dn,
+                "display_name": display_name,
+                "groups": sorted(entry.get("dn", "") for entry in groups if entry.get("dn")),
+                "message": "",
+            }
+        finally:
+            conn.unbind()
+
     @staticmethod
-    def _to_account(entry: dict[str, Any]) -> Account | None:
+    def _to_account(
+        entry: dict[str, Any], extra_attributes: list[str] | None = None
+    ) -> Account | None:
         """把 LDAP 查詢結果轉成統一的 Account。"""
         attrs = entry.get("attributes", {})
 
@@ -542,6 +677,18 @@ class LdapProvider(AccountProvider):
             "whenCreated": _first_value(attrs.get("whenCreated")),
             "whenChanged": _first_value(attrs.get("whenChanged")),
         }
+
+        # 管理者勾選的額外屬性。多值屬性（如 memberOf）保留完整清單，
+        # 只取第一個會讓「這個人在哪些群組」變成只剩一個群組。
+        for name in extra_attributes or ():
+            raw = attrs.get(name)
+            if raw is None or raw == [] or raw == "":
+                continue
+            extra[name] = (
+                "; ".join(str(item) for item in raw)
+                if isinstance(raw, list) and len(raw) > 1
+                else _first_value(raw)
+            )
 
         return Account(
             identifier=account_name,

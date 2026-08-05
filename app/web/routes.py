@@ -24,7 +24,14 @@ from app.db.models import (
     SourceType,
 )
 from app.export.excel import build_filename, export_to_csv, export_to_excel
-from app.providers.base import Account, AccountStatus, FetchResult
+from app.providers.base import Account, AccountStatus, FetchResult, ProviderError
+from app.providers.ldap_provider import LdapProvider, NestingStrategy
+from app.providers.ldap_queries import (
+    DEFAULT_TEMPLATE_KEY,
+    OPTIONAL_ATTRIBUTES,
+    QUERY_TEMPLATES,
+    SearchScope,
+)
 from app.security.csrf import get_or_create_token, rotate_token
 from app.web.deps import (
     AdminUser,
@@ -35,7 +42,12 @@ from app.web.deps import (
     client_ip,
     record_audit,
 )
-from app.web.services import build_provider, store_snapshot
+from app.web.services import build_provider, encrypt_secret, store_snapshot
+from app.web.source_forms import (
+    FormValidationError,
+    config_to_form_values,
+    parse_ldap_form,
+)
 from app.web.templates import templates
 
 logger = logging.getLogger(__name__)
@@ -400,6 +412,237 @@ async def list_sources(request: Request, session: SessionDep, user: CurrentUser)
     )
 
 
+@router.get("/sources/new")
+async def new_source_form(request: Request, user: AdminUser) -> Response:
+    """新增 AD／LDAP 來源的設定表單。"""
+    return templates.TemplateResponse(
+        request,
+        "source_form.html",
+        {
+            "request": request,
+            "user": user,
+            "source": None,
+            "values": _default_form_values(),
+            "errors": {},
+            **_form_reference_data(),
+        },
+    )
+
+
+@router.get("/sources/{source_id}/edit")
+async def edit_source_form(
+    request: Request, session: SessionDep, user: AdminUser, source_id: int
+) -> Response:
+    """編輯既有來源。密碼不回填——密文無法還原，且不應送回瀏覽器。"""
+    source = session.get(DataSource, source_id)
+    if source is None:
+        raise HTTPException(404, "找不到指定的資料來源。")
+    if source.source_type != SourceType.LDAP.value:
+        raise HTTPException(
+            400, "目前僅支援在網頁上編輯 AD／LDAP 來源的設定。"
+        )
+
+    values = config_to_form_values(source.config_json or {})
+    values.update(
+        {
+            "name": source.name,
+            "description": source.description,
+            "is_authoritative": source.is_authoritative,
+            "is_active": source.is_active,
+        }
+    )
+
+    return templates.TemplateResponse(
+        request,
+        "source_form.html",
+        {
+            "request": request,
+            "user": user,
+            "source": source,
+            "values": values,
+            "errors": {},
+            **_form_reference_data(),
+        },
+    )
+
+
+@router.post("/sources/save", dependencies=[CsrfProtected])
+async def save_source(
+    request: Request, session: SessionDep, user: AdminUser, source_id: int = Form(0)
+) -> Response:
+    """新增或更新 AD／LDAP 來源設定。
+
+    驗證失敗時把使用者填的值原樣回填（除了密碼），
+    讓管理者不必重打整份表單——只改有問題的欄位即可。
+    """
+    form = await request.form()
+    raw: dict[str, str] = {
+        key: str(value) for key, value in form.items() if not hasattr(value, "filename")
+    }
+    # 屬性是多選 checkbox，form.items() 只會留下最後一個值，
+    # 必須用 getlist 取完整清單再合併成表單層認得的格式。
+    raw["extra_attributes"] = ",".join(form.getlist("extra_attributes"))
+
+    existing = session.get(DataSource, source_id) if source_id else None
+    if source_id and existing is None:
+        raise HTTPException(404, "找不到要編輯的資料來源。")
+
+    try:
+        parsed = parse_ldap_form(raw, is_edit=existing is not None)
+    except FormValidationError as exc:
+        values = dict(raw)
+        values.pop("bind_password", None)
+        values["extra_attributes"] = [
+            a.strip() for a in (raw.get("extra_attributes") or "").split(",") if a.strip()
+        ]
+        return templates.TemplateResponse(
+            request,
+            "source_form.html",
+            {
+                "request": request,
+                "user": user,
+                "source": existing,
+                "values": values,
+                "errors": exc.errors,
+                **_form_reference_data(),
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # 名稱唯一性由資料庫約束保證，這裡先查一次以給出友善訊息
+    duplicate = session.scalar(
+        select(DataSource).where(
+            DataSource.name == parsed.name,
+            DataSource.id != (existing.id if existing else 0),
+        )
+    )
+    if duplicate is not None:
+        return templates.TemplateResponse(
+            request,
+            "source_form.html",
+            {
+                "request": request,
+                "user": user,
+                "source": existing,
+                "values": dict(raw),
+                "errors": {"name": f"已經有一個叫「{parsed.name}」的來源了，請換個名稱。"},
+                **_form_reference_data(),
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if existing is None:
+        existing = DataSource(
+            source_type=SourceType.LDAP.value, created_by=user.username
+        )
+        session.add(existing)
+        action = "source_created"
+    else:
+        action = "source_updated"
+
+    existing.name = parsed.name
+    existing.description = parsed.description
+    existing.is_authoritative = parsed.is_authoritative
+    existing.is_active = parsed.is_active
+    existing.config_json = parsed.to_config_json()
+
+    # 密碼留空代表沿用原本的（編輯情境），不覆寫成空字串
+    if parsed.bind_password is not None:
+        existing.encrypted_secret = encrypt_secret(parsed.bind_password)
+
+    session.flush()
+
+    record_audit(
+        session,
+        user,
+        action,
+        target_type="data_source",
+        target_id=str(existing.id),
+        # 稽核紀錄只留設定摘要，絕不記錄密碼
+        detail=f"{parsed.name}｜{parsed.host}:{parsed.port}｜範本={parsed.template_key or '群組成員'}",
+        ip_address=client_ip(request),
+    )
+    session.commit()
+
+    return RedirectResponse("/sources", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/sources/{source_id}/toggle", dependencies=[CsrfProtected])
+async def toggle_source(
+    request: Request, session: SessionDep, user: AdminUser, source_id: int
+) -> Response:
+    """啟用／停用來源。
+
+    刻意不提供刪除——快照與比對紀錄會參照來源，
+    刪除會讓既有的稽核紀錄失去脈絡（Comparison 的外鍵是 RESTRICT）。
+    """
+    source = session.get(DataSource, source_id)
+    if source is None:
+        raise HTTPException(404, "找不到指定的資料來源。")
+
+    source.is_active = not source.is_active
+
+    record_audit(
+        session,
+        user,
+        "source_toggled",
+        target_type="data_source",
+        target_id=str(source_id),
+        detail="啟用" if source.is_active else "停用",
+        ip_address=client_ip(request),
+    )
+    session.commit()
+
+    return RedirectResponse("/sources", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/sources/{source_id}/groups", dependencies=[CsrfProtected])
+async def lookup_user_groups(
+    request: Request,
+    session: SessionDep,
+    user: AdminUser,
+    source_id: int,
+    account: str = Form(""),
+) -> Response:
+    """反查某帳號隸屬於哪些群組（含巢狀）。
+
+    這是設定頁的診斷工具——用來確認群組 DN 是否填對、
+    以及某個人為什麼會出現在比對結果裡。
+    """
+    source = _get_source(session, source_id)
+    provider = build_provider(source)
+
+    if not isinstance(provider, LdapProvider):
+        raise HTTPException(400, "只有 AD／LDAP 來源支援群組反查。")
+
+    try:
+        result = provider.find_user_groups(account)
+    except ProviderError as exc:
+        return templates.TemplateResponse(
+            request,
+            "partials/user_groups.html",
+            {"request": request, "error": exc, "account": account},
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    record_audit(
+        session,
+        user,
+        "user_groups_looked_up",
+        target_type="data_source",
+        target_id=str(source_id),
+        detail=f"查詢帳號 {account[:100]}",
+        ip_address=client_ip(request),
+    )
+    session.commit()
+
+    return templates.TemplateResponse(
+        request,
+        "partials/user_groups.html",
+        {"request": request, "result": result, "account": account},
+    )
+
+
 @router.post("/sources/{source_id}/test", dependencies=[CsrfProtected])
 async def test_source(
     request: Request, session: SessionDep, user: AdminUser, source_id: int
@@ -408,7 +651,15 @@ async def test_source(
     source = _get_source(session, source_id)
     provider = build_provider(source)
 
-    diagnostics = provider.test_connection()
+    try:
+        diagnostics = provider.test_connection()
+    except ProviderError as exc:
+        return templates.TemplateResponse(
+            request,
+            "partials/diagnostics.html",
+            {"request": request, "error": exc, "source": source, "diagnostics": {}},
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
 
     record_audit(
         session,
@@ -444,6 +695,38 @@ async def audit_log(request: Request, session: SessionDep, user: CurrentUser) ->
 # ---------------------------------------------------------------------------
 # 內部輔助
 # ---------------------------------------------------------------------------
+
+
+def _form_reference_data() -> dict:
+    """設定表單需要的選項清單與說明資料。
+
+    集中在這裡，讓三個會渲染表單的路由（新增／編輯／驗證失敗回填）
+    不會各自組一份而漸漸不一致。
+    """
+    return {
+        "query_templates": QUERY_TEMPLATES,
+        "attribute_options": OPTIONAL_ATTRIBUTES,
+        "nesting_strategies": list(NestingStrategy),
+        "search_scopes": list(SearchScope),
+    }
+
+
+def _default_form_values() -> dict:
+    """新增來源時的預設值 —— 一律採安全預設（LDAPS + 驗憑證）。"""
+    return {
+        "port": 636,
+        "use_ssl": True,
+        "use_start_tls": False,
+        "verify_cert": True,
+        "is_active": True,
+        "is_authoritative": True,
+        "template_key": DEFAULT_TEMPLATE_KEY,
+        "nesting_strategy": NestingStrategy.RECURSIVE.value,
+        "search_scope": SearchScope.SUBTREE.value,
+        "page_size": 1000,
+        "receive_timeout": 30,
+        "extra_attributes": [],
+    }
 
 
 def _get_source(session, source_id: int) -> DataSource:  # type: ignore[no-untyped-def]

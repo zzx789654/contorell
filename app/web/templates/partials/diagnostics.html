@@ -1,4 +1,13 @@
 {# 連線診斷結果（IR-07、AC-01）—— 讓管理者能自我診斷相容性問題 #}
+{% if error %}
+  <div class="notice notice-error" role="alert">
+    <strong>{{ source.name }} 連線失敗</strong>
+    <p>{{ error.message }}</p>
+    {% if error.remediation %}
+      <p class="hint"><strong>建議處理方式：</strong>{{ error.remediation }}</p>
+    {% endif %}
+  </div>
+{% else %}
 <div class="diagnostics" role="status" aria-live="polite">
   <h3>{{ source.name }} 連線診斷</h3>
   <dl class="diagnostics-list">
@@ -12,5 +21,8 @@
   <p class="hint">
     若連線失敗，請對照上方資訊排查：TLS 版本代表實際協商結果，
     Windows Server 2025 支援 TLS 1.3、2016～2022 為 TLS 1.2。
+    <strong>estimated_count</strong> 是目前設定會撈到的帳號筆數——
+    與您預期的人數差很多時，通常是查詢範本或 Base DN 需要調整。
   </p>
 </div>
+{% endif %}

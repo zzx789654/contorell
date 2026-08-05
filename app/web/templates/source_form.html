@@ -1,0 +1,478 @@
+{% extends "base.html" %}
+{% set active_nav = 'sources' %}
+{% set is_edit = source is not none %}
+{% block title %}{{ '編輯' if is_edit else '新增' }} AD 來源 — contorell{% endblock %}
+
+{#
+  設定表單 —— 每個欄位都遵守同一個結構：
+    標籤 → 輸入 → 一行灰字說明（填錯會怎樣）→ 可展開的細節（範例 + ldapsearch 對照）
+  這樣不看說明書就能用（CoreMain 的「順手」），需要深究時也查得到。
+#}
+
+{% macro field_help(summary, example, ldapsearch, tips) %}
+  <details class="field-detail">
+    <summary>{{ summary }}</summary>
+    <div class="field-detail-body">
+      {% if example %}<p><strong>範例：</strong><code>{{ example }}</code></p>{% endif %}
+      {% if ldapsearch %}<p><strong>對應 ldapsearch 參數：</strong><code>{{ ldapsearch }}</code></p>{% endif %}
+      {% if tips %}<p>{{ tips }}</p>{% endif %}
+    </div>
+  </details>
+{% endmacro %}
+
+{% block content %}
+<nav aria-label="麵包屑" class="breadcrumb">
+  <a href="/sources">資料來源</a> ／ {{ '編輯' if is_edit else '新增' }}
+</nav>
+
+<h1>{{ '編輯' if is_edit else '新增' }} AD／LDAP 來源</h1>
+<p class="lead">
+  設定要從 Active Directory 抓取哪些帳號。填完後建議先按「測試連線」，
+  確認能連上、Base DN 正確、而且撈到的筆數符合預期，再拿去做比對。
+</p>
+
+{% if errors %}
+  <div class="notice notice-error" role="alert">
+    <strong>有 {{ errors|length }} 個欄位需要修正</strong>
+    <p>已在下方對應欄位標示，其他欄位您填的內容都保留著，不必重填。</p>
+  </div>
+{% endif %}
+
+<form method="post" action="/sources/save" class="config-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+  {% if is_edit %}<input type="hidden" name="source_id" value="{{ source.id }}">{% endif %}
+
+  {# ------------------------------------------------------------------ #}
+  <fieldset>
+    <legend>基本資訊</legend>
+
+    <div class="form-row {% if errors.name %}has-error{% endif %}">
+      <label for="name">來源名稱 <span class="required" aria-hidden="true">*</span></label>
+      <input type="text" id="name" name="name" required
+             value="{{ values.name or '' }}"
+             placeholder="AD — 資訊部現職人員"
+             aria-describedby="name-help {% if errors.name %}name-error{% endif %}">
+      <p class="field-hint" id="name-help">
+        這個名稱會顯示在比對結果與匯出報表上。取一個讓半年後的自己也看得懂的名字。
+      </p>
+      {% if errors.name %}<p class="field-error" id="name-error" role="alert">{{ errors.name }}</p>{% endif %}
+    </div>
+
+    <div class="form-row">
+      <label for="description">說明</label>
+      <textarea id="description" name="description" rows="2"
+                placeholder="用途、負責人、資料範圍等備註"
+                aria-describedby="description-help">{{ values.description or '' }}</textarea>
+      <p class="field-hint" id="description-help">
+        選填。建議寫下「這份名單代表什麼」，稽核時很有幫助。
+      </p>
+    </div>
+
+    <div class="form-row form-check">
+      <input type="checkbox" id="is_authoritative" name="is_authoritative" value="1"
+             {% if values.is_authoritative %}checked{% endif %}
+             aria-describedby="authoritative-help">
+      <label for="is_authoritative">這是權威身分來源</label>
+      <p class="field-hint" id="authoritative-help">
+        勾選後，比對時會以這份名單為基準判定風險——例如「AD 已停用但外部系統仍啟用」
+        會被標為高風險。AD 來源通常都應該勾選。
+      </p>
+    </div>
+
+    <div class="form-row form-check">
+      <input type="checkbox" id="is_active" name="is_active" value="1"
+             {% if values.is_active %}checked{% endif %}
+             aria-describedby="active-help">
+      <label for="is_active">啟用這個來源</label>
+      <p class="field-hint" id="active-help">
+        停用的來源不會出現在比對選單中，但既有的快照與比對紀錄都會保留。
+      </p>
+    </div>
+  </fieldset>
+
+  {# ------------------------------------------------------------------ #}
+  <fieldset>
+    <legend>連線設定</legend>
+
+    <div class="form-row {% if errors.host %}has-error{% endif %}">
+      <label for="host">網域控制站 <span class="required" aria-hidden="true">*</span></label>
+      <input type="text" id="host" name="host" required
+             value="{{ values.host or '' }}"
+             placeholder="dc01.corp.local"
+             aria-describedby="host-help {% if errors.host %}host-error{% endif %}">
+      <p class="field-hint" id="host-help">
+        AD 網域控制站的主機名稱或 IP。填錯會連不上，測試連線時會明確告訴您是 DNS 解析失敗還是連線被拒。
+      </p>
+      {{ field_help('這裡該填什麼？', 'dc01.corp.local', '-H ldaps://dc01.corp.local',
+         '若憑證是以主機名稱簽發的，請填主機名稱而非 IP，否則憑證驗證會失敗。多台 DC 時可先填任一台。') }}
+      {% if errors.host %}<p class="field-error" id="host-error" role="alert">{{ errors.host }}</p>{% endif %}
+    </div>
+
+    <div class="form-row {% if errors.use_ssl or errors.use_start_tls %}has-error{% endif %}">
+      <span class="label-like" id="encryption-label">加密方式 <span class="required" aria-hidden="true">*</span></span>
+      <div role="group" aria-labelledby="encryption-label" aria-describedby="encryption-help">
+        <label class="inline-check">
+          <input type="checkbox" name="use_ssl" value="1" {% if values.use_ssl %}checked{% endif %}>
+          LDAPS（連線一開始就加密，通常用 636 埠）
+        </label>
+        <label class="inline-check">
+          <input type="checkbox" name="use_start_tls" value="1" {% if values.use_start_tls %}checked{% endif %}>
+          StartTLS（先連 389 埠再升級為加密）
+        </label>
+      </div>
+      <p class="field-hint" id="encryption-help">
+        <strong>兩者擇一，且必須選一個。</strong>
+        本系統不允許未加密連線——那會讓服務帳號的密碼以明文在網路上傳輸。
+      </p>
+      {{ field_help('LDAPS 和 StartTLS 差在哪？', '', '-H ldaps://… ／ -Z（StartTLS）',
+         'TLS 版本由系統自動協商，不需要也不應該寫死：Windows Server 2025 支援 TLS 1.3，2016～2022 為 TLS 1.2。若您的 AD 兩種都開，選 LDAPS 即可。') }}
+      {% if errors.use_ssl %}<p class="field-error" role="alert">{{ errors.use_ssl }}</p>{% endif %}
+      {% if errors.use_start_tls %}<p class="field-error" role="alert">{{ errors.use_start_tls }}</p>{% endif %}
+    </div>
+
+    <div class="form-row {% if errors.port %}has-error{% endif %}">
+      <label for="port">連接埠</label>
+      <input type="number" id="port" name="port" min="1" max="65535"
+             value="{{ values.port or 636 }}"
+             aria-describedby="port-help {% if errors.port %}port-error{% endif %}">
+      <p class="field-hint" id="port-help">
+        LDAPS 用 636，StartTLS 用 389。若您的環境有自訂埠號才需要更改。
+      </p>
+      {% if errors.port %}<p class="field-error" id="port-error" role="alert">{{ errors.port }}</p>{% endif %}
+    </div>
+
+    <div class="form-row form-check">
+      <input type="checkbox" id="verify_cert" name="verify_cert" value="1"
+             {% if values.verify_cert %}checked{% endif %}
+             aria-describedby="verify-help">
+      <label for="verify_cert">驗證伺服器憑證（建議開啟）</label>
+      <p class="field-hint" id="verify-help">
+        關閉後連線仍然是加密的，但無法防範中間人攻擊。
+        <strong>正式環境請保持開啟</strong>，若使用企業自簽 CA，請在下方提供 CA 憑證檔。
+      </p>
+    </div>
+
+    <div class="form-row">
+      <label for="ca_cert_file">CA 憑證檔路徑</label>
+      <input type="text" id="ca_cert_file" name="ca_cert_file"
+             value="{{ values.ca_cert_file or '' }}"
+             placeholder="/etc/ssl/certs/corp-ca.pem"
+             aria-describedby="ca-help">
+      <p class="field-hint" id="ca-help">
+        選填。企業內部自簽憑證時填這裡，就能維持憑證驗證開啟。路徑是<strong>本系統伺服器上</strong>的路徑。
+      </p>
+    </div>
+  </fieldset>
+
+  {# ------------------------------------------------------------------ #}
+  <fieldset>
+    <legend>驗證帳號</legend>
+    <p class="fieldset-hint">
+      建議使用<strong>唯讀的專用服務帳號</strong>，不要用 Domain Admin。
+      本系統是唯讀工具，只需要讀取權限。
+    </p>
+
+    <div class="form-row {% if errors.base_dn %}has-error{% endif %}">
+      <label for="base_dn">搜尋起點 Base DN <span class="required" aria-hidden="true">*</span></label>
+      <input type="text" id="base_dn" name="base_dn" required
+             value="{{ values.base_dn or '' }}"
+             placeholder="DC=corp,DC=local"
+             aria-describedby="base-dn-help {% if errors.base_dn %}base-dn-error{% endif %}">
+      <p class="field-hint" id="base-dn-help">
+        決定要從哪個範圍開始找帳號。填錯會查無資料——測試連線會直接告訴您這個 DN 存不存在。
+      </p>
+      {{ field_help('Base DN 怎麼寫？', 'DC=corp,DC=local', '-b "DC=corp,DC=local"',
+         '網域名稱每一段轉成 DC=：corp.local → DC=corp,DC=local。若只想找特定組織單位，可縮小範圍如 OU=Employees,DC=corp,DC=local，查詢會更快。') }}
+      {% if errors.base_dn %}<p class="field-error" id="base-dn-error" role="alert">{{ errors.base_dn }}</p>{% endif %}
+    </div>
+
+    <div class="form-row {% if errors.bind_dn %}has-error{% endif %}">
+      <label for="bind_dn">服務帳號 <span class="required" aria-hidden="true">*</span></label>
+      <input type="text" id="bind_dn" name="bind_dn" required
+             value="{{ values.bind_dn or '' }}"
+             placeholder="CN=svc_ldap,OU=Service,DC=corp,DC=local"
+             aria-describedby="bind-dn-help {% if errors.bind_dn %}bind-dn-error{% endif %}">
+      <p class="field-hint" id="bind-dn-help">
+        用來連線 AD 的帳號。認證失敗時系統會明確區分「帳號密碼錯」與「連不上」。
+      </p>
+      {{ field_help('三種格式都可以', 'CN=svc_ldap,OU=Service,DC=corp,DC=local', '-D "CN=svc_ldap,OU=Service,DC=corp,DC=local"',
+         '完整 DN、UPN（svc_ldap@corp.local）、或網域\\帳號（CORP\\svc_ldap）皆可。使用 CORP\\帳號 格式時系統會優先嘗試 NTLM 綁定，可滿足 Windows Server 2025 預設要求的 LDAP signing。') }}
+      {% if errors.bind_dn %}<p class="field-error" id="bind-dn-error" role="alert">{{ errors.bind_dn }}</p>{% endif %}
+    </div>
+
+    <div class="form-row {% if errors.bind_password %}has-error{% endif %}">
+      <label for="bind_password">
+        密碼 {% if not is_edit %}<span class="required" aria-hidden="true">*</span>{% endif %}
+      </label>
+      <input type="password" id="bind_password" name="bind_password"
+             autocomplete="new-password"
+             {% if not is_edit %}required{% endif %}
+             placeholder="{{ '留空則不變更' if is_edit else '' }}"
+             aria-describedby="password-help {% if errors.bind_password %}password-error{% endif %}">
+      <p class="field-hint" id="password-help">
+        {% if is_edit %}
+          <strong>留空表示沿用原本的密碼。</strong>基於安全考量，已儲存的密碼不會顯示在這裡。
+        {% else %}
+          密碼會加密後儲存，不會以明文存進資料庫，也不會出現在稽核紀錄或日誌中。
+        {% endif %}
+      </p>
+      {% if errors.bind_password %}<p class="field-error" id="password-error" role="alert">{{ errors.bind_password }}</p>{% endif %}
+    </div>
+  </fieldset>
+
+  {# ------------------------------------------------------------------ #}
+  <fieldset>
+    <legend>要抓哪些帳號</legend>
+    <p class="fieldset-hint">
+      兩種指定方式：填「群組 DN」抓特定群組的成員，或留空並選一個「查詢範本」抓符合條件的帳號。
+      填了群組 DN 時，查詢範本不會生效。
+    </p>
+
+    <div class="form-row">
+      <label for="group_dn">群組 DN</label>
+      <input type="text" id="group_dn" name="group_dn"
+             value="{{ values.group_dn or '' }}"
+             placeholder="CN=IT_Admins,OU=Groups,DC=corp,DC=local"
+             aria-describedby="group-dn-help">
+      <p class="field-hint" id="group-dn-help">
+        選填。要抓取成員的 AD 群組完整識別名稱。留空則使用下方的查詢範本。
+      </p>
+      {{ field_help('DN 去哪裡複製？', 'CN=IT_Admins,OU=Groups,DC=corp,DC=local', '"(cn=IT_Admins)" member',
+         '在「Active Directory 使用者和電腦」中開啟「檢視 → 進階功能」，右鍵群組 → 內容 → 屬性編輯器 → distinguishedName，直接複製整串。不確定填得對不對時，可用下方的「查詢某人所屬群組」反查驗證。') }}
+    </div>
+
+    <div class="form-row {% if errors.template_key %}has-error{% endif %}">
+      <label for="template_key">查詢範本</label>
+      <select id="template_key" name="template_key" aria-describedby="template-help">
+        {% for tpl in query_templates %}
+          <option value="{{ tpl.key }}" {% if values.template_key == tpl.key %}selected{% endif %}>
+            {{ tpl.label }}
+          </option>
+        {% endfor %}
+      </select>
+      <p class="field-hint" id="template-help">
+        選一個預先設計好的查詢條件。系統會自動組出安全的 LDAP 查詢式，
+        您不需要懂 LDAP 語法。
+      </p>
+
+      <details class="field-detail">
+        <summary>每個範本各是什麼意思？（含實際查詢式）</summary>
+        <div class="field-detail-body">
+          <dl class="template-list">
+            {% for tpl in query_templates %}
+              <dt>{{ tpl.label }}</dt>
+              <dd>
+                <p>{{ tpl.description }}</p>
+                <p class="mono small">{{ tpl.filter_template }}</p>
+                {% if tpl.notes %}
+                  <ul class="small">
+                    {% for note in tpl.notes %}<li>{{ note }}</li>{% endfor %}
+                  </ul>
+                {% endif %}
+              </dd>
+            {% endfor %}
+          </dl>
+          <p class="hint">
+            為了防止 LDAP 注入，本系統不開放直接輸入自訂查詢式；
+            您填的值一律會被視為純文字，因此也無法使用萬用字元 <code>*</code>。
+          </p>
+        </div>
+      </details>
+      {% if errors.template_key %}<p class="field-error" role="alert">{{ errors.template_key }}</p>{% endif %}
+    </div>
+
+    {# 範本參數：目前只有部門／職稱兩種，全部列出讓使用者依所選範本填寫 #}
+    {% for tpl in query_templates %}
+      {% for param in tpl.parameters %}
+        {% set field_name = 'param_' ~ param.key %}
+        {% if loop.first or true %}
+          <div class="form-row template-param param-for-{{ tpl.key }}
+                      {% if errors[field_name] %}has-error{% endif %}">
+            <label for="{{ field_name }}">{{ param.label }}（{{ tpl.label }}）</label>
+            <input type="text" id="{{ field_name }}" name="{{ field_name }}"
+                   value="{{ values[field_name] or '' }}"
+                   placeholder="{{ param.placeholder }}"
+                   aria-describedby="{{ field_name }}-help">
+            <p class="field-hint" id="{{ field_name }}-help">{{ param.help_text }}</p>
+            {% if errors[field_name] %}
+              <p class="field-error" role="alert">{{ errors[field_name] }}</p>
+            {% endif %}
+          </div>
+        {% endif %}
+      {% endfor %}
+    {% endfor %}
+
+    <div class="form-row {% if errors.nesting_strategy %}has-error{% endif %}">
+      <label for="nesting_strategy">巢狀群組展開方式</label>
+      <select id="nesting_strategy" name="nesting_strategy" aria-describedby="nesting-help">
+        <option value="recursive" {% if values.nesting_strategy == 'recursive' %}selected{% endif %}>
+          應用端逐層展開（預設，進度可控）
+        </option>
+        <option value="in_chain" {% if values.nesting_strategy == 'in_chain' %}selected{% endif %}>
+          由網域控制站展開（查詢次數少）
+        </option>
+        <option value="direct_only" {% if values.nesting_strategy == 'direct_only' %}selected{% endif %}>
+          只取直接成員（不展開子群組）
+        </option>
+      </select>
+      <p class="field-hint" id="nesting-help">
+        群組裡如果還有群組，要不要把裡面的人一起抓出來。
+        <strong>做權限稽核請不要選「只取直接成員」</strong>，會漏掉透過子群組繼承權限的人。
+      </p>
+      {{ field_help('三種方式怎麼選？', '', 'memberOf:1.2.840.113556.1.4.1941:=<群組DN>',
+         '「應用端逐層展開」發多次小查詢，每次都快，且能防範循環群組參照。「由網域控制站展開」只發一次查詢，但大型群組（數千人）在 DC 上運算會很慢甚至逾時。預設用前者，遇到效能問題再改。') }}
+      {% if errors.nesting_strategy %}<p class="field-error" role="alert">{{ errors.nesting_strategy }}</p>{% endif %}
+    </div>
+
+    <div class="form-row {% if errors.search_scope %}has-error{% endif %}">
+      <label for="search_scope">搜尋範圍</label>
+      <select id="search_scope" name="search_scope" aria-describedby="scope-help">
+        <option value="subtree" {% if values.search_scope == 'subtree' %}selected{% endif %}>
+          含所有子階層（預設）
+        </option>
+        <option value="level" {% if values.search_scope == 'level' %}selected{% endif %}>
+          只找直接子項
+        </option>
+        <option value="base" {% if values.search_scope == 'base' %}selected{% endif %}>
+          只找 Base DN 本身
+        </option>
+      </select>
+      <p class="field-hint" id="scope-help">
+        從 Base DN 往下找多深。預設「含所有子階層」適用絕大多數情況；
+        改成其他選項可能會讓您漏抓帳號。
+      </p>
+      {{ field_help('對應 ldapsearch 的 -s 參數', '', '-s sub ／ -s one ／ -s base',
+         '只有當您的 AD 結構很深、而您確定帳號都放在同一層時，才需要改成「只找直接子項」來加快查詢。') }}
+      {% if errors.search_scope %}<p class="field-error" role="alert">{{ errors.search_scope }}</p>{% endif %}
+    </div>
+  </fieldset>
+
+  {# ------------------------------------------------------------------ #}
+  <fieldset>
+    <legend>要抓哪些欄位</legend>
+    <p class="fieldset-hint">
+      帳號名稱、顯示名稱、電子郵件、啟用狀態一律會抓取。
+      下面是可以額外抓的欄位，抓回來後會顯示在比對結果中，也會一起匯出。
+      <strong>只勾選您真正需要的</strong>——欄位越多，查詢越慢、報表也越難讀。
+    </p>
+
+    <div class="form-row {% if errors.extra_attributes %}has-error{% endif %}">
+      <fieldset class="checkbox-grid">
+        <legend class="sr-only">額外抓取的 AD 屬性</legend>
+        {% for attr in attribute_options %}
+          <div class="checkbox-item">
+            <input type="checkbox" id="attr_{{ attr.name }}" name="extra_attributes"
+                   value="{{ attr.name }}"
+                   {% if attr.name in (values.extra_attributes or []) %}checked{% endif %}
+                   aria-describedby="attr-{{ attr.name }}-help">
+            <label for="attr_{{ attr.name }}">
+              {{ attr.label }} <code class="small">{{ attr.name }}</code>
+            </label>
+            <p class="field-hint small" id="attr-{{ attr.name }}-help">{{ attr.help_text }}</p>
+          </div>
+        {% endfor %}
+      </fieldset>
+      {% if errors.extra_attributes %}
+        <p class="field-error" role="alert">{{ errors.extra_attributes }}</p>
+      {% endif %}
+    </div>
+  </fieldset>
+
+  {# ------------------------------------------------------------------ #}
+  <fieldset>
+    <legend>效能與逾時</legend>
+
+    <div class="form-row {% if errors.page_size %}has-error{% endif %}">
+      <label for="page_size">分頁大小</label>
+      <input type="number" id="page_size" name="page_size" min="1" max="1000"
+             value="{{ values.page_size or 1000 }}"
+             aria-describedby="page-size-help {% if errors.page_size %}page-size-error{% endif %}">
+      <p class="field-hint" id="page-size-help">
+        每次向 AD 索取幾筆。<strong>建議保持 1000</strong>（AD 端的上限）。
+        系統一律使用分頁查詢，不會因為群組超過 1000 人就漏抓。
+      </p>
+      {{ field_help('為什麼分頁很重要？', '1000', '-E pr=1000/noprompt',
+         'AD 單次查詢最多只回傳 1000 筆，而且超過時「不會報錯」——會直接靜默截斷。對權限比對來說，這會產生看起來正常但實際錯誤的稽核結論，比程式當掉更危險。因此本系統一律分頁，並在結果頁顯示來源筆數供您交叉檢查。') }}
+      {% if errors.page_size %}<p class="field-error" id="page-size-error" role="alert">{{ errors.page_size }}</p>{% endif %}
+    </div>
+
+    <div class="form-row {% if errors.receive_timeout %}has-error{% endif %}">
+      <label for="receive_timeout">連線逾時（秒）</label>
+      <input type="number" id="receive_timeout" name="receive_timeout" min="1" max="600"
+             value="{{ values.receive_timeout or 30 }}"
+             aria-describedby="timeout-help {% if errors.receive_timeout %}timeout-error{% endif %}">
+      <p class="field-hint" id="timeout-help">
+        等待 AD 回應的秒數。大型群組（數千人）建議設 60 秒以上，避免抓到一半被中斷。
+      </p>
+      {% if errors.receive_timeout %}<p class="field-error" id="timeout-error" role="alert">{{ errors.receive_timeout }}</p>{% endif %}
+    </div>
+  </fieldset>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">
+      {{ '儲存變更' if is_edit else '建立來源' }}
+    </button>
+    <a href="/sources" class="btn btn-plain">取消</a>
+  </div>
+</form>
+
+{% if is_edit %}
+  {# 診斷工具區：只有已儲存的來源才能測試，因為需要用到已加密的密碼 #}
+  <section class="diagnostics-section">
+    <h2>設定驗證工具</h2>
+    <p class="lead">
+      儲存後可以用這兩個工具確認設定正確——建議在拿去做比對之前先跑一次。
+    </p>
+
+    <div class="tool-card">
+      <h3>測試連線</h3>
+      <p>
+        確認能連上 AD、TLS 協商結果、Base DN 是否存在，
+        並預估目前設定會撈到幾筆帳號。
+      </p>
+      <button class="btn"
+              hx-post="/sources/{{ source.id }}/test"
+              hx-target="#test-result"
+              hx-swap="innerHTML"
+              hx-indicator="#testing">
+        測試連線
+      </button>
+      <span id="testing" class="htmx-indicator" role="status">
+        <span class="spinner" aria-hidden="true"></span> 連線測試中⋯⋯
+      </span>
+      <div id="test-result" aria-live="polite"></div>
+    </div>
+
+    <div class="tool-card">
+      <h3>查詢某人所屬群組</h3>
+      <p>
+        輸入一個 AD 帳號，列出他隸屬的所有群組（包含透過子群組繼承的）。
+        用來確認上面的群組 DN 有沒有填對，或釐清某人為什麼會出現在比對結果裡。
+      </p>
+      <form hx-post="/sources/{{ source.id }}/groups"
+            hx-target="#groups-result"
+            hx-swap="innerHTML"
+            hx-indicator="#looking-up"
+            class="inline-form">
+        <label for="lookup-account" class="sr-only">AD 登入帳號</label>
+        <input type="text" id="lookup-account" name="account"
+               placeholder="jsmith" required
+               aria-describedby="lookup-help">
+        <button type="submit" class="btn">查詢</button>
+        <span id="looking-up" class="htmx-indicator" role="status">
+          <span class="spinner" aria-hidden="true"></span> 查詢中⋯⋯
+        </span>
+      </form>
+      <p class="field-hint" id="lookup-help">
+        請輸入登入帳號（sAMAccountName），例如 jsmith，不是顯示名稱。
+      </p>
+      <div id="groups-result" aria-live="polite"></div>
+    </div>
+  </section>
+{% else %}
+  <p class="notice notice-info" role="note">
+    建立來源後，這裡會出現「測試連線」與「查詢某人所屬群組」兩個驗證工具，
+    可以在正式比對前先確認設定是否正確。
+  </p>
+{% endif %}
+{% endblock %}

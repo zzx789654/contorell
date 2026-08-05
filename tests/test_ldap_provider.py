@@ -372,3 +372,200 @@ class TestErrorClassification:
 
         assert error.category == "connection"
         assert error.remediation  # 必須有修補建議
+
+
+# ---------------------------------------------------------------------------
+# Round 2：查詢範本、屬性選擇、搜尋範圍、群組反查
+# ---------------------------------------------------------------------------
+
+
+class TestQueryTemplateIntegration:
+    """範本設定要真的影響送出的查詢，而不是只存在設定裡。"""
+
+    def test_template_filter_is_used_in_fetch(self):
+        provider = LdapProvider(make_config(), template_key="disabled_users")
+
+        assert "userAccountControl" in provider.search_filter
+        assert "(!(" not in provider.search_filter
+
+    def test_template_parameter_is_escaped_in_search_filter(self):
+        provider = LdapProvider(
+            make_config(),
+            template_key="by_department",
+            template_parameters={"department": "*)(uid=*"},
+        )
+
+        # RFC 4515 轉義後的 '*' 是 \2a。用 raw string 表示，
+        # 否則 "\2a" 會被 Python 讀成控制字元 \x02 加上 'a'。
+        assert r"\2a" in provider.search_filter
+        assert provider.search_filter.count("(") == provider.search_filter.count(")")
+
+    def test_invalid_template_rejected_at_construction(self):
+        """設定錯誤要在建立來源當下就爆出來，而不是等到抓取時。"""
+        with pytest.raises(ConfigurationError):
+            LdapProvider(make_config(), template_key="no_such_template")
+
+    def test_missing_template_parameter_rejected_at_construction(self):
+        with pytest.raises(ConfigurationError):
+            LdapProvider(make_config(), template_key="by_department")
+
+    def test_group_dn_takes_precedence_over_template(self):
+        provider = LdapProvider(
+            make_config(nesting_strategy=NestingStrategy.IN_CHAIN),
+            group_dn="CN=IT,OU=Groups,DC=example,DC=local",
+        )
+
+        assert "memberOf" in provider.search_filter
+
+
+class TestAttributeSelection:
+    """管理者勾選的額外屬性要真的被索取並帶進結果。"""
+
+    def test_extra_attributes_requested_from_ad(self):
+        provider = LdapProvider(
+            make_config(extra_attributes=["department", "title"]),
+            group_dn="CN=G,DC=example,DC=local",
+        )
+        conn = MagicMock()
+        conn.extend.standard.paged_search.return_value = iter([])
+
+        provider._paged_search(conn, "(objectClass=user)", provider._attributes)
+
+        requested = conn.extend.standard.paged_search.call_args.kwargs["attributes"]
+        assert "department" in requested
+        assert "title" in requested
+        # 核心屬性不可因為勾選額外屬性而消失
+        assert "sAMAccountName" in requested
+
+    def test_unknown_attribute_rejected_by_config(self):
+        with pytest.raises(ConfigurationError):
+            LdapProvider(make_config(extra_attributes=["ntSecurityDescriptor"]))
+
+    def test_extra_attribute_value_lands_in_account(self):
+        entry = make_entry("jsmith")
+        entry["attributes"]["department"] = "資訊部"
+
+        account = LdapProvider._to_account(entry, ["department"])
+
+        assert account.attributes["department"] == "資訊部"
+
+    def test_multivalued_attribute_preserves_all_values(self):
+        """memberOf 這類多值屬性只取第一個會遺失資訊。"""
+        entry = make_entry("jsmith")
+        entry["attributes"]["memberOf"] = ["CN=A,DC=x", "CN=B,DC=x", "CN=C,DC=x"]
+
+        account = LdapProvider._to_account(entry, ["memberOf"])
+
+        assert "CN=A,DC=x" in account.attributes["memberOf"]
+        assert "CN=C,DC=x" in account.attributes["memberOf"]
+
+    def test_absent_extra_attribute_is_omitted(self):
+        """AD 沒有回傳該屬性時不應留下空字串鍵。"""
+        account = LdapProvider._to_account(make_entry("jsmith"), ["department"])
+
+        assert "department" not in account.attributes
+
+
+class TestSearchScope:
+    """搜尋範圍要傳給 ldap3，而不是被忽略。"""
+
+    def test_scope_passed_to_paged_search(self):
+        from app.providers.ldap_queries import SearchScope
+
+        provider = LdapProvider(
+            make_config(search_scope=SearchScope.LEVEL),
+            group_dn="CN=G,DC=example,DC=local",
+        )
+        conn = MagicMock()
+        conn.extend.standard.paged_search.return_value = iter([])
+
+        provider._paged_search(conn, "(objectClass=user)", ["sAMAccountName"])
+
+        kwargs = conn.extend.standard.paged_search.call_args.kwargs
+        assert kwargs["search_scope"] == "LEVEL"
+
+    def test_default_scope_is_subtree(self):
+        provider = LdapProvider(make_config(), group_dn="CN=G,DC=example,DC=local")
+        conn = MagicMock()
+        conn.extend.standard.paged_search.return_value = iter([])
+
+        provider._paged_search(conn, "(objectClass=user)", ["sAMAccountName"])
+
+        kwargs = conn.extend.standard.paged_search.call_args.kwargs
+        assert kwargs["search_scope"] == "SUBTREE"
+
+
+class TestUserGroupLookup:
+    """反查某帳號所屬群組（含巢狀）—— 設定驗證工具。"""
+
+    def _provider_with_conn(self, conn):
+        provider = LdapProvider(make_config())
+        provider._connect = MagicMock(return_value=conn)  # type: ignore[method-assign]
+        return provider
+
+    def test_returns_groups_for_existing_user(self):
+        conn = MagicMock()
+        user_entry = make_entry("jsmith")
+        group_entries = [
+            {"type": "searchResEntry", "dn": "CN=IT_Admins,OU=G,DC=example,DC=local",
+             "attributes": {"cn": "IT_Admins"}},
+            {"type": "searchResEntry", "dn": "CN=Staff,OU=G,DC=example,DC=local",
+             "attributes": {"cn": "Staff"}},
+        ]
+        conn.extend.standard.paged_search.side_effect = [
+            iter([user_entry]),
+            iter(group_entries),
+        ]
+        provider = self._provider_with_conn(conn)
+
+        result = provider.find_user_groups("jsmith")
+
+        assert result["user_dn"] == user_entry["dn"]
+        assert len(result["groups"]) == 2
+        assert "CN=IT_Admins,OU=G,DC=example,DC=local" in result["groups"]
+
+    def test_unknown_user_reports_clearly(self):
+        """查無帳號要給出可行動的訊息，而不是空結果讓人以為沒群組。"""
+        conn = MagicMock()
+        conn.extend.standard.paged_search.return_value = iter([])
+        provider = self._provider_with_conn(conn)
+
+        result = provider.find_user_groups("nosuchuser")
+
+        assert result["user_dn"] == ""
+        assert result["groups"] == []
+        assert result["message"]
+
+    def test_user_with_no_groups(self):
+        conn = MagicMock()
+        conn.extend.standard.paged_search.side_effect = [
+            iter([make_entry("loner")]),
+            iter([]),
+        ]
+        provider = self._provider_with_conn(conn)
+
+        result = provider.find_user_groups("loner")
+
+        assert result["user_dn"]
+        assert result["groups"] == []
+
+    def test_account_name_is_escaped(self):
+        """反查的帳號名同樣不可改變 filter 結構。"""
+        conn = MagicMock()
+        conn.extend.standard.paged_search.return_value = iter([])
+        provider = self._provider_with_conn(conn)
+
+        provider.find_user_groups("*)(uid=*")
+
+        used_filter = conn.extend.standard.paged_search.call_args.kwargs["search_filter"]
+        assert r"\2a" in used_filter
+        assert used_filter.count("(") == used_filter.count(")")
+
+    def test_connection_is_released(self):
+        conn = MagicMock()
+        conn.extend.standard.paged_search.return_value = iter([])
+        provider = self._provider_with_conn(conn)
+
+        provider.find_user_groups("jsmith")
+
+        conn.unbind.assert_called_once()

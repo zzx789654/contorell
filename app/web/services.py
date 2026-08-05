@@ -22,6 +22,7 @@ from app.providers.base import (
     FetchResult,
 )
 from app.providers.ldap_provider import LdapConfig, LdapProvider, NestingStrategy
+from app.providers.ldap_queries import DEFAULT_TEMPLATE_KEY, SearchScope
 from app.security.crypto import SecretBox
 
 
@@ -67,11 +68,16 @@ def _build_ldap_provider(source: DataSource, config: dict, secret: str) -> LdapP
         ca_cert_file=config.get("ca_cert_file") or settings.ldap_ca_cert_file or None,
         page_size=int(config.get("page_size", settings.ldap_page_size)),
         nesting_strategy=NestingStrategy(config.get("nesting_strategy", "recursive")),
+        receive_timeout=int(config.get("receive_timeout", 30)),
+        search_scope=SearchScope(config.get("search_scope", SearchScope.SUBTREE.value)),
+        extra_attributes=list(config.get("extra_attributes") or []),
     )
 
     return LdapProvider(
         ldap_config,
         group_dn=config.get("group_dn") or None,
+        template_key=config.get("template_key") or DEFAULT_TEMPLATE_KEY,
+        template_parameters=config.get("template_parameters") or {},
         label=source.name,
     )
 
