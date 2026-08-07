@@ -310,3 +310,28 @@
 **L-31｜systemd `ProtectHome=read-only` 會悄悄擋掉「家目錄下的 SQLite 寫入」**
 - 情境：專案 clone 在 `/home/user/...`，用 SQLite，systemd 單元加了 `ProtectHome=read-only` 強化。
 - 準則：`ProtectHome=read-only` 讓整個 `/home` 對服務唯讀 → SQLite 寫 `.db/.db-wal` 直接失敗，且錯誤不明顯。修法：保留強化，但對 DB 目錄加 `ReadWritePaths=<data 目錄>`（覆蓋沙箱、只放行該路徑可寫）。**沙箱強化要對照應用實際會寫哪裡，逐一開白名單，而不是照抄一套 Protect* 就上。**
+
+---
+
+## [2026-08-07] 輪結 Round 6 — 修復：未登入開網站根目錄只看到死的 401
+
+### 現況
+- 使用者從瀏覽器開網頁（GET /）看到 401 Unauthorized，以為「網頁打不開」。根因是未登入時的導頁只對 HTMX 生效。
+- 過關狀態沿用；本輪為 bug 修復 + 回歸測試。
+
+### 本輪紀錄
+- 根因：`get_current_user` 未登入時回 401 並帶 `HX-Redirect: /login` 標頭。該標頭**只有 HTMX（JS）請求看得懂**；一般瀏覽器直接導覽到 `/` 時不認得，於是停在死的 401，無法抵達登入頁。
+- 修法：新增 `LoginRequiredError` 例外 + 集中式處理器，依請求型態分流——
+  瀏覽器導覽（Accept: text/html）→ **303 導向 /login**；HTMX → 401 + HX-Redirect；API/JSON → 401。
+- 驗證：新增 4 條回歸測試（瀏覽器導向、HTMX 標頭）；實跑 curl 三種請求型態確認 303/401/401；全套 401 passed、coverage 77.54%、ruff/format/bandit 全綠。
+- 附帶澄清：截圖中的 `KeyError: 'id'`（compose/cli/log_printer.py）是 `docker compose logs` 監看執行緒的已知問題，**與應用無關**。
+
+### 教訓 / 準則
+
+**L-32｜「導頁靠框架專屬標頭」時，別忘了非該框架的請求（尤其瀏覽器直接導覽）**
+- 情境：HTMX 應用用 `HX-Redirect` 做未登入導頁，本機測試（多用 HTMX 片段或 */* 請求）都正常，但使用者用瀏覽器直接開根網址就卡在 401。
+- 準則：認證失敗的導頁要**依請求型態分流**：一般瀏覽器導覽回 3xx Location、框架 AJAX 回其專屬標頭、API 回 401。只做其中一種，另一種入口就會壞。測試要涵蓋「帶 Accept: text/html 的導覽請求」，不能只測 */*。
+
+**L-33｜使用者說「網頁打不開」，先看伺服器存取日誌的狀態碼與來源 IP**
+- 情境：截圖日誌顯示遠端 IP `GET / → 401`，而所有 `GET /login → 200` 都來自 `127.0.0.1`。
+- 準則：`127.0.0.1` 的 /login 多半是容器健康檢查，不是真使用者。把「真實來源 IP 打了什麼、拿到什麼碼」對齊，就能快速定位——本例一眼看出「真使用者只到得了 /（401），到不了 /login」。日誌的來源 IP 欄位是分辨「真流量 vs 健康檢查」的關鍵。
