@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -21,6 +21,7 @@ from app.config import get_settings
 from app.db.session import init_db, session_scope
 from app.providers.base import ProviderError
 from app.web import routes
+from app.web.deps import LoginRequiredError
 from app.web.templates import templates
 
 logging.basicConfig(
@@ -117,6 +118,22 @@ def _register_middleware(app: FastAPI, settings) -> None:  # type: ignore[no-unt
 
 
 def _register_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(LoginRequiredError)
+    async def login_required_handler(request: Request, exc: LoginRequiredError):  # type: ignore[no-untyped-def]
+        """未登入存取受保護頁面時，依請求型態給出正確回應。
+
+        關鍵修正：一般瀏覽器**直接開網站根目錄**時要導向登入頁，
+        而不是回一個死的 401——後者會讓使用者以為「網頁打不開」。
+        """
+        # HTMX 請求：用 HX-Redirect 讓前端 JS 導頁
+        if request.headers.get("HX-Request"):
+            return Response(status_code=401, headers={"HX-Redirect": "/login"})
+        # 一般瀏覽器導覽（會帶 Accept: text/html）：303 導向登入頁
+        if "text/html" in request.headers.get("accept", ""):
+            return RedirectResponse("/login", status_code=303)
+        # 其餘（API/JSON 用戶端）：維持 401，語意正確
+        return JSONResponse({"detail": exc.message}, status_code=401)
+
     @app.exception_handler(ProviderError)
     async def provider_error_handler(request: Request, exc: ProviderError):  # type: ignore[no-untyped-def]
         """把 Provider 錯誤轉成可行動的畫面訊息（AC-01、AC-04）。"""

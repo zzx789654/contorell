@@ -23,28 +23,36 @@ SessionDep = Annotated[Session, Depends(get_session)]
 CsrfProtected = Depends(verify_csrf)
 
 
+class LoginRequiredError(Exception):
+    """未認證存取受保護資源。
+
+    由 app/main.py 的例外處理器依請求型態轉成適當回應：
+    - 一般瀏覽器導覽（Accept: text/html）→ **303 導向 /login**，
+      否則使用者直接開網站根目錄只會看到一個死的 401（FIND：未登入無法抵達登入頁）。
+    - HTMX 請求 → 401 + `HX-Redirect: /login`，由前端 JS 導頁。
+    - 其餘（API/JSON）→ 維持 401。
+    集中在此，路由不需各自處理未登入。
+    """
+
+    def __init__(self, message: str = "請先登入。") -> None:
+        super().__init__(message)
+        self.message = message
+
+
 def get_current_user(request: Request, session: SessionDep) -> User:
-    """取得已登入的使用者，未登入回 401。
+    """取得已登入的使用者，未登入則丟出 :class:`LoginRequiredError`。
 
     角色一律**從資料庫重新讀取**，不從 session cookie 取用——
     否則管理者被降權後，舊 session 仍會保有管理者權限。
     """
     user_id = request.session.get("user_id")
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="請先登入。",
-            headers={"HX-Redirect": "/login"},
-        )
+        raise LoginRequiredError("請先登入。")
 
     user = session.get(User, user_id)
     if user is None or not user.is_active:
         request.session.clear()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="登入狀態已失效，請重新登入。",
-            headers={"HX-Redirect": "/login"},
-        )
+        raise LoginRequiredError("登入狀態已失效，請重新登入。")
 
     return user
 

@@ -88,6 +88,26 @@ class TestAuthorizationEnforcement:
 
         assert response.status_code == 401
 
+    @pytest.mark.parametrize("path", ["/", "/sources", "/audit"])
+    def test_browser_navigation_redirects_to_login(self, client, path):
+        """一般瀏覽器（Accept: text/html）開受保護頁面要 303 導向 /login，
+        而不是回一個死的 401——否則使用者直接開網站根目錄會以為「網頁打不開」。"""
+        response = client.get(
+            path,
+            headers={"accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login"
+
+    def test_htmx_unauthenticated_gets_hx_redirect(self, client):
+        """HTMX 請求未登入時回 401 並帶 HX-Redirect，供前端 JS 導頁。"""
+        response = client.get("/", headers={"HX-Request": "true"}, follow_redirects=False)
+
+        assert response.status_code == 401
+        assert response.headers.get("HX-Redirect") == "/login"
+
     def test_unauthenticated_post_denied(self, client):
         """未登入的 POST 回 401（而非 403）——真正的原因是未認證。"""
         response = client.post(
