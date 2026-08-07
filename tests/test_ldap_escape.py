@@ -111,14 +111,10 @@ class TestBuildFilter:
         inner = result[1:-1]
         for escape_seq in ("\\2a", "\\28", "\\29", "\\5c", "\\00"):
             inner = inner.replace(escape_seq, "")
-        assert not any(char in inner for char in "()*\\"), (
-            f"殘留未轉義的 metachar：{inner!r}"
-        )
+        assert not any(char in inner for char in "()*\\"), f"殘留未轉義的 metachar：{inner!r}"
 
     def test_multiple_placeholders(self):
-        result = build_filter(
-            "(&(cn={name})(dept={dept}))", name="test*", dept="IT(x)"
-        )
+        result = build_filter("(&(cn={name})(dept={dept}))", name="test*", dept="IT(x)")
         assert "\\2a" in result
         assert "\\28" in result
 

@@ -100,7 +100,9 @@ def validate_external_url(
     # 解析主機名稱為 IP。同一名稱可能對應多個 IP，全部都要檢查——
     # 只檢查第一個會被「一個公網 IP + 一個內網 IP」的 DNS 記錄繞過。
     try:
-        addr_info = socket.getaddrinfo(hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
+        addr_info = socket.getaddrinfo(
+            hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
+        )
     except socket.gaierror as exc:
         raise UrlNotAllowed(
             f"無法解析主機名稱：{hostname}",

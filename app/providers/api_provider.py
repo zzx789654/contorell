@@ -246,8 +246,7 @@ class ApiProvider(AccountProvider):
                     raise AuthenticationError(
                         f"API 認證失敗（HTTP {response.status_code}）",
                         remediation=(
-                            "請確認 API 金鑰或 token 正確且未過期，"
-                            "並具備讀取帳號清單的權限。"
+                            "請確認 API 金鑰或 token 正確且未過期，並具備讀取帳號清單的權限。"
                         ),
                     )
 
@@ -504,9 +503,7 @@ class ApiProvider(AccountProvider):
                 f"{mapped}（存在）" if mapped in records[0] else f"{mapped}（**回應中不存在**）"
             )
         else:
-            diagnostics["warning"] = (
-                "端點回應成功，但沒有取得任何帳號記錄。請確認資料路徑設定。"
-            )
+            diagnostics["warning"] = "端點回應成功，但沒有取得任何帳號記錄。請確認資料路徑設定。"
 
         return diagnostics
 

@@ -63,9 +63,7 @@ class AuthenticationFailed(Exception):
 
 class AccountLocked(AuthenticationFailed):
     def __init__(self, until: datetime) -> None:
-        super().__init__(
-            f"帳號因連續登入失敗已暫時鎖定，請於 {until.strftime('%H:%M')} 後再試。"
-        )
+        super().__init__(f"帳號因連續登入失敗已暫時鎖定，請於 {until.strftime('%H:%M')} 後再試。")
 
 
 @dataclass(slots=True)
@@ -85,9 +83,7 @@ class AuthService:
     # 登入
     # ------------------------------------------------------------------
 
-    def authenticate(
-        self, username: str, password: str, *, ip_address: str = ""
-    ) -> AuthResult:
+    def authenticate(self, username: str, password: str, *, ip_address: str = "") -> AuthResult:
         """驗證登入，AD 優先、本地帳號退路。
 
         Raises:
@@ -266,9 +262,7 @@ class AuthService:
 
     def _get_attempt_record(self, username: str) -> LoginAttempt | None:
         return self._session.scalar(
-            select(LoginAttempt).where(
-                LoginAttempt.identity_key == normalize_username(username)
-            )
+            select(LoginAttempt).where(LoginAttempt.identity_key == normalize_username(username))
         )
 
     def _record_attempt_failure(self, username: str) -> None:
@@ -294,9 +288,7 @@ class AuthService:
             attempt.failure_count += 1
         attempt.last_failure_at = now
 
-    def _on_failure(
-        self, user: User | None, username: str, method: str, ip_address: str
-    ) -> None:
+    def _on_failure(self, user: User | None, username: str, method: str, ip_address: str) -> None:
         """記錄失敗並在超過門檻時鎖定帳號。"""
         if user is not None:
             user.failed_login_count += 1
@@ -338,9 +330,7 @@ class AuthService:
         target = normalize_username(username)
         # func.lower 在資料庫端比對，可搭配函式索引；
         # casefold 與 lower 對 ASCII 帳號名結果一致。
-        return self._session.scalar(
-            select(User).where(func.lower(User.username) == target)
-        )
+        return self._session.scalar(select(User).where(func.lower(User.username) == target))
 
     def _audit(self, username: str, action: str, detail: str, ip_address: str) -> None:
         self._session.add(
@@ -404,9 +394,7 @@ def generate_session_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def find_ad_user_attributes(
-    session: Session, config: LdapConfig, username: str
-) -> dict[str, str]:
+def find_ad_user_attributes(session: Session, config: LdapConfig, username: str) -> dict[str, str]:
     """以服務帳號查詢 AD 使用者的顯示名稱與 Email。
 
     登入驗證用的是使用者自己的 bind，這裡另以服務帳號查屬性，

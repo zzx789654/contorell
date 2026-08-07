@@ -68,9 +68,7 @@ class SecretBox:
             return self._fernet.decrypt(ciphertext.encode("ascii")).decode("utf-8")
         except (InvalidToken, ValueError) as exc:
             # 不外洩密文內容或金鑰細節（避免資訊洩漏）
-            raise ValueError(
-                "無法解密憑證：密文可能已損毀，或 SECRET_KEY 與加密時不同。"
-            ) from exc
+            raise ValueError("無法解密憑證：密文可能已損毀，或 SECRET_KEY 與加密時不同。") from exc
 
 
 def hash_password(password: str) -> str:

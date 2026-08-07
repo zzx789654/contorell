@@ -67,7 +67,7 @@ pytest tests/ -m "not slow"                       # 跳過效能測試
 
 | 腳本 | 對應 `make` | 做什麼 |
 |---|---|---|
-| [`scripts/install.sh`](scripts/install.sh) | `make install` | 產生 `.env`、以 `secrets` 模組產生高熵金鑰、同步 `DATABASE_URL`、檢查前置條件 |
+| [`scripts/install.sh`](scripts/install.sh) | `make install` | 產生 `.env`、以 `secrets` 模組產生高熵金鑰、同步 `DATABASE_URL`、**自動安裝所有套件** |
 | [`scripts/deploy.sh`](scripts/deploy.sh) | `make deploy` | 前置驗證 → 建置 → 啟動 → 健康檢查 → 煙霧測試，**失敗自動回滾** |
 | [`scripts/smoke-test.sh`](scripts/smoke-test.sh) | `make smoke` | 部署後快速確認服務可對外服務（可指向 staging/prod URL） |
 | [`scripts/lib.sh`](scripts/lib.sh) | — | 共用函式庫，不單獨執行 |
@@ -75,13 +75,18 @@ pytest tests/ -m "not slow"                       # 跳過效能測試
 ### ① 安裝：`scripts/install.sh`
 
 ```bash
-scripts/install.sh                  # Docker 模式（預設，含模擬 AD）
-scripts/install.sh --mode local     # 本機模式（uv + 本機 PostgreSQL）
+scripts/install.sh                  # Docker 模式（預設，build 映像＝把所有套件裝進映像）
+scripts/install.sh --mode local     # 本機模式（建 .venv 並自動安裝所有相依套件）
+scripts/install.sh --no-deps        # 只產生 .env，跳過套件安裝
 scripts/install.sh --admin-user ops # 指定本地管理員帳號名稱
 scripts/install.sh --force          # 重新產生所有金鑰（先自動備份舊 .env）
 ```
 
-- **冪等**：已存在的 `.env` 預設不覆寫，只補上仍是 `CHANGE_ME` 的欄位；重跑不會換掉你已設定的值。
+- **自動安裝所有套件**：
+  - **Docker 模式** → 執行 `docker compose build`，把 `fastapi`、`uvicorn`、`ldap3`… 等所有相依裝進映像（首次較久）。
+  - **本機模式** → 建立 `.venv`（優先用 `uv`，沒有就用 Python 內建 `venv`），並 `pip install -e ".[dev]"` 裝好含測試工具的完整相依。
+  - 不想現在裝、只想產生設定檔 → 加 `--no-deps`。
+- **冪等**：已存在的 `.env` 預設不覆寫，只補上仍是 `CHANGE_ME` 的欄位；`.venv` 已存在則沿用不重建。
 - **安全**：`SECRET_KEY`／各密碼在本機產生後直接寫入 `.env`，**不印到終端機**；`.env` 權限收緊為 `600`。
 - 無法自動產生的欄位（真實 AD 的 `LDAP_HOST`／`LDAP_BIND_DN`／`LDAP_BIND_PASSWORD`）會逐一提示你手動填。
 
@@ -140,10 +145,71 @@ scripts/smoke-test.sh --retries 20 --interval 3         # 調整等待就緒的�
 若要直接在本機跑（需自備 PostgreSQL）：
 
 ```bash
-scripts/install.sh --mode local     # 產生 .env 並把 DATABASE_URL 指向 localhost
-uv venv && uv pip install -e ".[dev]"
+scripts/install.sh --mode local     # 產生 .env、指向 localhost，並自動建 .venv 裝好所有套件
+source .venv/bin/activate
 uvicorn app.main:app --reload
 ```
+
+`install.sh --mode local` 已幫你把 `.venv` 與所有相依（含 `pytest` 等 dev 工具）裝好，不需再手動 `pip install`。
+
+---
+
+## 讓其他網段的 IP 連線到網頁
+
+**預設只有執行主機自己（`127.0.0.1`）連得到**——這是刻意的安全預設。要讓「同網段或其他網段的電腦」用瀏覽器連進來，依你的執行方式二選一：
+
+### Docker 模式（改綁定位址，最簡單）
+
+1. 在 `.env` 設定對外綁定位址為 `0.0.0.0`（監聽所有網卡）：
+
+   ```bash
+   APP_BIND=0.0.0.0
+   ```
+
+2. 重新部署讓設定生效：
+
+   ```bash
+   scripts/deploy.sh          # 會以新的 APP_BIND 重新綁定 8000 埠
+   ```
+
+3. 其他電腦以「**執行主機的 IP**」連線，例如主機是 `192.168.1.50`：
+
+   ```
+   http://192.168.1.50:8000
+   ```
+
+> 原理：`docker-compose.yml` 的埠對映為 `${APP_BIND:-127.0.0.1}:8000:8000`。預設綁 `127.0.0.1` 只有本機能連；改成 `0.0.0.0` 後才會對外。**只有 `app` 對外，資料庫與 Samba 仍鎖在 `127.0.0.1`**，不會意外曝露。
+
+### 本機模式（uvicorn 直接跑）
+
+啟動時把監聽位址設為 `0.0.0.0`：
+
+```bash
+source .venv/bin/activate
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+### 還要打通這兩關
+
+1. **主機防火牆放行 8000 埠**（否則封包到不了）：
+
+   ```bash
+   # Ubuntu/Debian（ufw）
+   sudo ufw allow from 192.168.1.0/24 to any port 8000 proto tcp   # 只放行特定網段（建議）
+   # RHEL/CentOS（firewalld）
+   sudo firewall-cmd --add-port=8000/tcp --permanent && sudo firewall-cmd --reload
+   # Windows Server
+   New-NetFirewallRule -DisplayName "contorell 8000" -Direction Inbound -LocalPort 8000 -Protocol TCP -Action Allow
+   ```
+
+2. **跨網段時確認路由/NAT 可達**：不同網段之間要有路由或防火牆規則允許到達主機的 8000 埠（這屬於你的網路環境，非本系統設定）。查主機 IP：`ip addr`（Linux）／`ipconfig`（Windows）。
+
+### ⚠️ 安全提醒（務必看）
+
+- 上述方式對外的是**明文 HTTP**，只適合**受信任的內網測試**。本系統集中儲存全公司帳號權限資料，是高價值目標。
+- **正式環境不要直接對外暴露 8000**：請在前面架 **HTTPS 反向代理**（nginx／Caddy／Traefik），對外只開 443，`APP_BIND` 維持 `127.0.0.1`（只讓反向代理連）。
+- `APP_ENV=production` 會啟用 **secure cookie（僅限 HTTPS）**——若在正式模式下走明文 HTTP，登入 cookie 會無法送出而**登不進去**。所以要嘛用 HTTPS 反向代理、要嘛內網測試時維持 `development`。
+- 防火牆盡量**只放行需要的來源網段**（如上例的 `192.168.1.0/24`），不要對整個網際網路開放。
 
 ---
 
