@@ -66,8 +66,11 @@ services:
       LDAP_VERIFY_CERT: ${LDAP_VERIFY_CERT:-false}
       BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?請在 .env 設定 BOOTSTRAP_ADMIN_PASSWORD}
+    # 對外綁定位址由 APP_BIND 控制（預設 127.0.0.1 = 只有本機能連）。
+    # 要讓其他網段的 IP 連進來，於 .env 設 APP_BIND=0.0.0.0 —— 詳見 README。
+    # ⚠️ 直接對外暴露的是明文 HTTP，僅適合受信任的內網測試；正式環境請置於 HTTPS 反向代理之後。
     ports:
-      - "127.0.0.1:8000:8000"
+      - "${APP_BIND:-127.0.0.1}:8000:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/login')"]
       interval: 15s
