@@ -61,6 +61,42 @@ pytest tests/ -m "not slow"                       # 跳過效能測試
 
 ---
 
+## 需要編輯的設定檔（檔案路徑）
+
+**日常使用只需要編輯一個檔案：專案根目錄的 [`.env`](.env)。** 所有連線資訊與金鑰都集中在這裡；其餘檔案由腳本自動產生，或屬進階調整。
+
+| 檔案路徑 | 需要編輯嗎 | 內容 / 何時才動 |
+|---|---|---|
+| **`./.env`** | ✅ **要**（由 `scripts/install.sh` 自動建立） | 你唯一需要編輯的設定檔——AD/LDAP 連線、資料庫、對外綁定、管理員退路帳號、金鑰 |
+| `./.env.example` | ❌ 唯讀範本，**勿直接改** | `.env` 的樣板;只有要新增設定項時才動它 |
+| `./docker-compose.yml` | ⚙️ 通常不用 | 服務組成與埠對映。對外綁定已可由 `.env` 的 `APP_BIND` 控制，不必改此檔 |
+| `./.github/workflows/ci.yml` | ⚙️ 只在調 CI 時 | CI 管線(lint／測試／資安掃描 gate) |
+
+> `.env` 不存在？執行 `scripts/install.sh` 會從 `.env.example` 自動建立並填好金鑰。
+
+### 編輯 `.env`（專案根目錄）
+
+```bash
+$EDITOR .env        # 或 vim .env / nano .env / code .env
+```
+
+`.env` 就在專案根目錄。`install.sh` 已自動產生金鑰與密碼,你通常只需視環境補這幾類欄位:
+
+| 欄位 | 什麼時候改 |
+|---|---|
+| `LDAP_HOST`／`LDAP_BASE_DN`／`LDAP_BIND_DN`／`LDAP_BIND_PASSWORD` | **接真實 AD 時必填**(唯讀服務帳號,非 Domain Admin) |
+| `LDAP_VERIFY_CERT`／`LDAP_CA_CERT_FILE` | 正式環境務必 `true` 並提供企業 CA 憑證路徑 |
+| `APP_BIND` | 要讓其他網段連進來時設 `0.0.0.0`(見[下方](#讓其他網段的-ip-連線到網頁)) |
+| `APP_ENV` | 上正式環境時設 `production`(啟用 HSTS／secure cookie／關閉 API 文件) |
+| `BOOTSTRAP_ADMIN_USERNAME` | 想改本地管理員退路帳號名稱 |
+| `SECRET_KEY`／`POSTGRES_PASSWORD`／`BOOTSTRAP_ADMIN_PASSWORD` | **通常不用改**(已自動產生;要重產用 `install.sh --force`) |
+
+各欄位的完整說明見 [`.env.example`](.env.example) 內的註解,以及下方[① 安裝](#-安裝scriptsinstallsh)的變數表。
+
+> ⚠️ `.env` 內含密鑰,已列入 `.gitignore` 且權限為 `600`,**絕不可提交進版控**。
+
+---
+
 ## 自動化安裝與部署
 
 四個腳本各司其職，全部可獨立執行，也可用 `Makefile` 捷徑呼叫：
