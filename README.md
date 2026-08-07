@@ -53,11 +53,25 @@ scripts/deploy.sh       # ② 部署：建置 → 起服務 → 健康檢查 →
 
 ### 執行測試
 
+`scripts/install.sh` 已把 `pytest` 等所有相依裝進專案的 `.venv`，測試最簡單的跑法是用
+`make`（會自動使用 `.venv`，不必手動 activate）：
+
 ```bash
+make test          # 執行完整測試套件（含覆蓋率）
+```
+
+或先啟用 `.venv` 再直接下 `pytest`：
+
+```bash
+source .venv/bin/activate                         # 啟用 install.sh 建好的環境
 pytest tests/ -v                                  # 全部測試
 pytest tests/ --cov=app --cov-report=term-missing # 含覆蓋率
 pytest tests/ -m "not slow"                       # 跳過效能測試
 ```
+
+> 出現 `ModuleNotFoundError`（模組沒下載）？多半是**沒有用 `.venv`**——
+> 用 `make test`，或先 `source .venv/bin/activate` 再跑。
+> 若當初是用 `--no-deps` 安裝或 `.venv` 不存在，補跑一次 `scripts/install.sh --mode local` 即可裝好。
 
 ---
 

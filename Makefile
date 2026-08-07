@@ -8,6 +8,10 @@
 .DEFAULT_GOAL := help
 .PHONY: help install deploy deploy-prod smoke test lint security logs down rollback clean
 
+# 若 install.sh 已建好 .venv，優先用它裡面的工具（pytest/ruff…），
+# 否則退回 PATH 上的同名工具。這樣 `make test` 不需要先手動 activate。
+BIN := $(if $(wildcard .venv/bin/python),.venv/bin/,)
+
 help: ## 顯示這份說明
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -34,13 +38,13 @@ rollback: ## 回滾：停掉目前這批容器
 	@scripts/deploy.sh --rollback
 
 test: ## 執行完整測試套件（含覆蓋率）
-	@pytest tests/ --cov=app --cov-report=term-missing
+	@$(BIN)pytest tests/ --cov=app --cov-report=term-missing
 
 lint: ## 程式碼風格與型別檢查
-	@ruff check app tests
+	@$(BIN)ruff check app tests
 
 security: ## 本機資安掃描（SAST + SCA）
-	@bandit -r app -c pyproject.toml -ll && pip-audit --desc
+	@$(BIN)bandit -r app -c pyproject.toml -ll && $(BIN)pip-audit --desc
 
 clean: ## 清除 Python 暫存與快取
 	@find . -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
