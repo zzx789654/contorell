@@ -6,7 +6,7 @@
 # 用 `make help` 看全部指令。
 
 .DEFAULT_GOAL := help
-.PHONY: help install deploy deploy-prod smoke test lint security logs down rollback clean
+.PHONY: help install deploy deploy-prod deploy-native deploy-native-sqlite native-status native-logs smoke test lint security logs down rollback clean
 
 # 若 install.sh 已建好 .venv，優先用它裡面的工具（pytest/ruff…），
 # 否則退回 PATH 上的同名工具。這樣 `make test` 不需要先手動 activate。
@@ -24,6 +24,18 @@ deploy: ## 部署（開發環境，含模擬 AD DC）
 
 deploy-prod: ## 部署（正式環境，接真實 AD，執行安全關卡）
 	@scripts/deploy.sh --env production --no-samba
+
+deploy-native: ## 原生部署（不用 Docker，systemd 服務；預設 PostgreSQL）
+	@sudo scripts/deploy-native.sh
+
+deploy-native-sqlite: ## 原生部署 + 檔案型 SQLite（零額外服務，最簡單）
+	@sudo scripts/deploy-native.sh --sqlite
+
+native-status: ## 原生服務狀態
+	@scripts/deploy-native.sh --status
+
+native-logs: ## 原生服務即時 log
+	@scripts/deploy-native.sh --logs
 
 smoke: ## 對執行中的服務跑煙霧測試
 	@scripts/smoke-test.sh
