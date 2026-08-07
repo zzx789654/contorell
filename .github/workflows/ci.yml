@@ -48,7 +48,7 @@ jobs:
 
       - name: Ruff format 檢查
         run: ruff format --check app tests
-        continue-on-error: true # 格式尚未全面套用，先不擋 build
+        # 格式已全面套用（Round 4），改為硬性 gate：未格式化即擋 build
 
   # ---------------------------------------------------------------
   # Gate：功能 + 品質 — 測試與覆蓋率

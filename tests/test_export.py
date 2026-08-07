@@ -62,9 +62,7 @@ class TestFormulaInjectionDefense:
 
     def test_malicious_display_name_sanitized_in_export(self, sample_comparison):
         """實務情境：AD 的 displayName 含公式字元。"""
-        ad = make_result(
-            [Account(identifier="evil", display_name="=cmd|'/c calc'!A1")], "AD"
-        )
+        ad = make_result([Account(identifier="evil", display_name="=cmd|'/c calc'!A1")], "AD")
         erp = make_result([], "ERP")
         result = compare(ad, erp)
 
@@ -154,7 +152,7 @@ class TestFilename:
         """檔名不可含路徑分隔符或引號，避免標頭注入與路徑穿越。"""
         filename = build_filename(sample_comparison, "xlsx")
 
-        for char in ('/', '\\', '"', "'", "\n", "\r", ".."):
+        for char in ("/", "\\", '"', "'", "\n", "\r", ".."):
             assert char not in filename.replace(".xlsx", "")
 
     def test_has_correct_extension(self, sample_comparison):

@@ -14,9 +14,7 @@ import pytest
 # 測試用設定必須在匯入 app 之前設定
 _TEST_DB = Path(tempfile.gettempdir()) / "contorell_source_routes_test.db"
 # 以程式組出測試金鑰，避免密鑰掃描工具把長字面值誤判為真實憑證（見 lessons L-12）
-os.environ.setdefault(
-    "SECRET_KEY", "-".join(["routes", "test", "dummy", "key"]) + "-" + "2" * 24
-)
+os.environ.setdefault("SECRET_KEY", "-".join(["routes", "test", "dummy", "key"]) + "-" + "2" * 24)
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{_TEST_DB}")
 os.environ.setdefault("BOOTSTRAP_ADMIN_USERNAME", "admin")
 os.environ.setdefault("BOOTSTRAP_ADMIN_PASSWORD", "Test!Admin!Pass1")
@@ -126,9 +124,7 @@ class TestAuthorization:
 
         assert response.status_code == 401
 
-    @pytest.mark.parametrize(
-        "path", ["/sources/save", "/sources/1/toggle", "/sources/1/groups"]
-    )
+    @pytest.mark.parametrize("path", ["/sources/save", "/sources/1/toggle", "/sources/1/groups"])
     def test_unauthenticated_post_denied(self, client, path):
         response = client.post(path, data={}, follow_redirects=False)
 
@@ -147,9 +143,7 @@ class TestAuthorization:
         create_user("auditor", UserRole.AUDITOR.value)
         login(client, "auditor")
 
-        response = client.post(
-            "/sources/save", data=valid_payload(client), follow_redirects=False
-        )
+        response = client.post("/sources/save", data=valid_payload(client), follow_redirects=False)
 
         assert response.status_code == 403
 
@@ -207,9 +201,7 @@ class TestCsrfProtection:
         create_user("admin1", UserRole.ADMIN.value)
         login(client, "admin1")
 
-        response = client.post(
-            f"/sources/{source_id}/toggle", data={}, follow_redirects=False
-        )
+        response = client.post(f"/sources/{source_id}/toggle", data={}, follow_redirects=False)
 
         assert response.status_code == 403
 
@@ -261,9 +253,7 @@ class TestCreateAndEdit:
         create_user("admin1", UserRole.ADMIN.value)
         login(client, "admin1")
 
-        response = client.post(
-            "/sources/save", data=valid_payload(client), follow_redirects=False
-        )
+        response = client.post("/sources/save", data=valid_payload(client), follow_redirects=False)
 
         assert response.status_code == 303
         with SessionLocal() as session:

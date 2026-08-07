@@ -235,10 +235,12 @@ class TestNestedGroupExpansion:
             filter_str = kwargs["search_filter"]
             if "objectClass=group" in filter_str:
                 if "Parent" in filter_str:
-                    return iter([
-                        {"type": "searchResEntry", "dn": "CN=Sub1,DC=example,DC=local"},
-                        {"type": "searchResEntry", "dn": "CN=Sub2,DC=example,DC=local"},
-                    ])
+                    return iter(
+                        [
+                            {"type": "searchResEntry", "dn": "CN=Sub1,DC=example,DC=local"},
+                            {"type": "searchResEntry", "dn": "CN=Sub2,DC=example,DC=local"},
+                        ]
+                    )
                 return iter([])
             # 兩個子群組都含同一人
             return iter([make_entry("shared", dn=shared_dn)])
@@ -303,11 +305,11 @@ class TestAccountConversion:
     @pytest.mark.parametrize(
         ("uac", "expected_disabled"),
         [
-            (512, False),      # 一般帳號
-            (514, True),       # 一般帳號 + 停用
-            (66048, False),    # 密碼永不過期
-            (66050, True),     # 密碼永不過期 + 停用
-            (66082, True),     # 停用 + 密碼永不過期 + 不需密碼
+            (512, False),  # 一般帳號
+            (514, True),  # 一般帳號 + 停用
+            (66048, False),  # 密碼永不過期
+            (66050, True),  # 密碼永不過期 + 停用
+            (66082, True),  # 停用 + 密碼永不過期 + 不需密碼
         ],
     )
     def test_uac_bit_combinations(self, uac, expected_disabled):
@@ -507,10 +509,16 @@ class TestUserGroupLookup:
         conn = MagicMock()
         user_entry = make_entry("jsmith")
         group_entries = [
-            {"type": "searchResEntry", "dn": "CN=IT_Admins,OU=G,DC=example,DC=local",
-             "attributes": {"cn": "IT_Admins"}},
-            {"type": "searchResEntry", "dn": "CN=Staff,OU=G,DC=example,DC=local",
-             "attributes": {"cn": "Staff"}},
+            {
+                "type": "searchResEntry",
+                "dn": "CN=IT_Admins,OU=G,DC=example,DC=local",
+                "attributes": {"cn": "IT_Admins"},
+            },
+            {
+                "type": "searchResEntry",
+                "dn": "CN=Staff,OU=G,DC=example,DC=local",
+                "attributes": {"cn": "Staff"},
+            },
         ]
         conn.extend.standard.paged_search.side_effect = [
             iter([user_entry]),

@@ -229,9 +229,7 @@ async def view_comparison(
     if comparison is None:
         raise HTTPException(404, "找不到指定的比對紀錄。")
 
-    query = select(ComparisonRowRecord).where(
-        ComparisonRowRecord.comparison_id == comparison_id
-    )
+    query = select(ComparisonRowRecord).where(ComparisonRowRecord.comparison_id == comparison_id)
     if status_filter:
         query = query.where(ComparisonRowRecord.match_status == status_filter)
     if risk_filter:
@@ -244,9 +242,7 @@ async def view_comparison(
     all_rows = session.scalars(query).all()
     # 高風險優先（UX 決策）
     order = {RiskLevel.HIGH.value: 0, RiskLevel.MEDIUM.value: 1, RiskLevel.LOW.value: 2}
-    sorted_rows = sorted(
-        all_rows, key=lambda r: (order.get(r.risk_level, 3), r.account_key)
-    )
+    sorted_rows = sorted(all_rows, key=lambda r: (order.get(r.risk_level, 3), r.account_key))
 
     page = max(1, page)
     start = (page - 1) * PAGE_SIZE
@@ -303,9 +299,7 @@ async def save_annotation(
         raise HTTPException(400, f"欄位「{field_key}」不存在或已停用。")
 
     annotation = session.scalar(
-        select(Annotation).where(
-            Annotation.row_id == row_id, Annotation.field_key == field_key
-        )
+        select(Annotation).where(Annotation.row_id == row_id, Annotation.field_key == field_key)
     )
     if annotation is None:
         annotation = Annotation(row_id=row_id, field_key=field_key)
@@ -438,9 +432,7 @@ async def edit_source_form(
     if source is None:
         raise HTTPException(404, "找不到指定的資料來源。")
     if source.source_type != SourceType.LDAP.value:
-        raise HTTPException(
-            400, "目前僅支援在網頁上編輯 AD／LDAP 來源的設定。"
-        )
+        raise HTTPException(400, "目前僅支援在網頁上編輯 AD／LDAP 來源的設定。")
 
     values = config_to_form_values(source.config_json or {})
     values.update(
@@ -532,9 +524,7 @@ async def save_source(
         )
 
     if existing is None:
-        existing = DataSource(
-            source_type=SourceType.LDAP.value, created_by=user.username
-        )
+        existing = DataSource(source_type=SourceType.LDAP.value, created_by=user.username)
         session.add(existing)
         action = "source_created"
     else:
@@ -683,9 +673,7 @@ async def audit_log(request: Request, session: SessionDep, user: CurrentUser) ->
     """稽核軌跡（FR-14）—— P2 稽核者的主要入口。"""
     from app.db.models import AuditLog
 
-    logs = session.scalars(
-        select(AuditLog).order_by(desc(AuditLog.occurred_at)).limit(200)
-    ).all()
+    logs = session.scalars(select(AuditLog).order_by(desc(AuditLog.occurred_at)).limit(200)).all()
 
     return templates.TemplateResponse(
         request, "audit.html", {"request": request, "user": user, "logs": logs}
@@ -827,9 +815,7 @@ def _rebuild_comparison_result(session, comparison: Comparison):  # type: ignore
 def _load_annotations(session, row_ids: list[int]) -> dict[int, dict[str, str]]:  # type: ignore[no-untyped-def]
     if not row_ids:
         return {}
-    records = session.scalars(
-        select(Annotation).where(Annotation.row_id.in_(row_ids))
-    ).all()
+    records = session.scalars(select(Annotation).where(Annotation.row_id.in_(row_ids))).all()
     result: dict[int, dict[str, str]] = {}
     for record in records:
         result.setdefault(record.row_id, {})[record.field_key] = record.value

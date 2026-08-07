@@ -207,9 +207,7 @@ def _diff_attributes(account_a: Account, account_b: Account) -> list[str]:
         and account_b.display_name
         and account_a.display_name.strip() != account_b.display_name.strip()
     ):
-        differences.append(
-            f"顯示名稱不同：A={account_a.display_name}、B={account_b.display_name}"
-        )
+        differences.append(f"顯示名稱不同：A={account_a.display_name}、B={account_b.display_name}")
 
     return differences
 

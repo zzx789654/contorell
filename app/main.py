@@ -111,9 +111,7 @@ def _register_middleware(app: FastAPI, settings) -> None:  # type: ignore[no-unt
             "base-uri 'self'"
         )
         if settings.is_production:
-            response.headers["Strict-Transport-Security"] = (
-                "max-age=31536000; includeSubDomains"
-            )
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
         return response
 
@@ -143,9 +141,7 @@ def _register_error_handlers(app: FastAPI) -> None:
         logger.exception("未預期的錯誤：%s", exc)
 
         if request.headers.get("accept", "").startswith("application/json"):
-            return JSONResponse(
-                {"detail": "系統發生未預期的錯誤，請聯繫管理員。"}, status_code=500
-            )
+            return JSONResponse({"detail": "系統發生未預期的錯誤，請聯繫管理員。"}, status_code=500)
         return HTMLResponse(
             "<h1>系統錯誤</h1><p>發生未預期的錯誤，請聯繫管理員。</p>", status_code=500
         )

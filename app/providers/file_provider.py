@@ -49,7 +49,15 @@ class ColumnMapping:
     email: str = ""
     status: str = ""
     enabled_values: tuple[str, ...] = (
-        "true", "1", "active", "enabled", "y", "yes", "啟用", "是", "有效",
+        "true",
+        "1",
+        "active",
+        "enabled",
+        "y",
+        "yes",
+        "啟用",
+        "是",
+        "有效",
     )
 
 
@@ -70,7 +78,9 @@ class FileConfig:
             )
 
 
-def sniff_columns(content: bytes, filename: str, *, sheet_name: str | None = None) -> tuple[list[str], list[dict[str, str]]]:
+def sniff_columns(
+    content: bytes, filename: str, *, sheet_name: str | None = None
+) -> tuple[list[str], list[dict[str, str]]]:
     """讀取表頭與前幾列，供 UI 顯示預覽並讓管理者設定欄位對應（AC-05）。
 
     Returns:
@@ -365,9 +375,7 @@ class FileProvider(AccountProvider):
             warnings.append(f"有 {skipped} 列的「{mapping.identifier}」欄位是空的，已略過。")
 
         if len(rows) >= self._config.max_rows:
-            warnings.append(
-                f"檔案列數已達上限 {self._config.max_rows:,} 列，超出部分未讀取。"
-            )
+            warnings.append(f"檔案列數已達上限 {self._config.max_rows:,} 列，超出部分未讀取。")
 
         return FetchResult(
             accounts=accounts,

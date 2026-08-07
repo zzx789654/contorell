@@ -247,9 +247,7 @@ class TestUnprovisionedAccountThrottling:
             with pytest.raises(AuthenticationFailed):
                 service.authenticate("never-seen-before", "guess")
 
-        attempt = session.query(LoginAttempt).filter_by(
-            identity_key="never-seen-before"
-        ).one()
+        attempt = session.query(LoginAttempt).filter_by(identity_key="never-seen-before").one()
         assert attempt.failure_count == 3
 
     def test_unknown_account_eventually_throttled(self, session):

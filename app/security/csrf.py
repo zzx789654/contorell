@@ -84,9 +84,7 @@ async def verify_csrf(request: Request) -> None:
         )
 
     if not _origin_matches(request):
-        logger.warning(
-            "CSRF：Origin/Referer 與本站不符（path=%s）", request.url.path
-        )
+        logger.warning("CSRF：Origin/Referer 與本站不符（path=%s）", request.url.path)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="請求來源不正確，已拒絕。",

@@ -357,8 +357,7 @@ class LdapProvider(AccountProvider):
         return ConnectionError_(
             f"無法連線到 {self._config.host}:{self._config.port} — {exc}",
             remediation=(
-                "請確認網域控制站可達、防火牆已開放對應連接埠"
-                "（LDAPS 為 636、StartTLS 為 389）。"
+                "請確認網域控制站可達、防火牆已開放對應連接埠（LDAPS 為 636、StartTLS 為 389）。"
             ),
         )
 
@@ -389,7 +388,11 @@ class LdapProvider(AccountProvider):
                 if naming_contexts:
                     self._diagnostics["naming_contexts"] = ", ".join(naming_contexts[:3])
                 other = getattr(info, "other", {}) or {}
-                for key in ("domainFunctionality", "forestFunctionality", "domainControllerFunctionality"):
+                for key in (
+                    "domainFunctionality",
+                    "forestFunctionality",
+                    "domainControllerFunctionality",
+                ):
                     if key in other:
                         value = other[key]
                         self._diagnostics[key] = (
@@ -497,9 +500,7 @@ class LdapProvider(AccountProvider):
                     collected[dn.lower()] = entry
 
             # 直接成員中的子群組，加入待展開佇列
-            sub_filter = build_filter(
-                "(&(objectClass=group)(memberOf={group}))", group=current_dn
-            )
+            sub_filter = build_filter("(&(objectClass=group)(memberOf={group}))", group=current_dn)
             for sub in self._paged_search(conn, sub_filter, ["distinguishedName"]):
                 sub_dn = sub.get("dn", "")
                 if sub_dn and sub_dn.lower() not in visited_groups:
@@ -521,17 +522,16 @@ class LdapProvider(AccountProvider):
                 raw_entries = self._fetch_group_members(conn, self._group_dn)
                 if self._config.nesting_strategy is NestingStrategy.DIRECT_ONLY:
                     warnings.append(
-                        "本次僅抓取直接成員，未展開巢狀群組。"
-                        "若群組含子群組，成員數會少於實際人數。"
+                        "本次僅抓取直接成員，未展開巢狀群組。若群組含子群組，成員數會少於實際人數。"
                     )
             else:
                 # 範本已在建構時組好並轉義（見 __init__）
                 raw_entries = self._paged_search(conn, self._search_filter, self._attributes)
-                warnings.append(
-                    f"查詢範本：{get_template(self._template_key).label}"
-                )
+                warnings.append(f"查詢範本：{get_template(self._template_key).label}")
 
-            accounts = [self._to_account(entry, self._config.extra_attributes) for entry in raw_entries]
+            accounts = [
+                self._to_account(entry, self._config.extra_attributes) for entry in raw_entries
+            ]
             accounts = [acc for acc in accounts if acc is not None]  # type: ignore[misc]
 
             skipped = len(raw_entries) - len(accounts)
@@ -578,9 +578,7 @@ class LdapProvider(AccountProvider):
             diagnostics["attributes"] = "、".join(self._attributes)
 
             try:
-                matched = self._paged_search(
-                    conn, self.search_filter, ["sAMAccountName"]
-                )
+                matched = self._paged_search(conn, self.search_filter, ["sAMAccountName"])
                 diagnostics["estimated_count"] = f"{len(matched)} 筆"
                 if not matched:
                     diagnostics["estimated_count"] += (
@@ -628,9 +626,7 @@ class LdapProvider(AccountProvider):
                 }
 
             user_dn = users[0].get("dn", "")
-            display_name = _first_value(
-                users[0].get("attributes", {}).get("displayName")
-            )
+            display_name = _first_value(users[0].get("attributes", {}).get("displayName"))
 
             groups = self._paged_search(
                 conn,

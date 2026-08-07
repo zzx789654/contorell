@@ -12,9 +12,7 @@ import pytest
 # 測試用設定必須在匯入 app 之前設定
 _TEST_DB = Path(tempfile.gettempdir()) / "contorell_test.db"
 # 以程式組出測試金鑰，避免密鑰掃描工具把長字面值誤判為真實憑證
-os.environ.setdefault(
-    "SECRET_KEY", "-".join(["web", "test", "dummy", "key"]) + "-" + "1" * 24
-)
+os.environ.setdefault("SECRET_KEY", "-".join(["web", "test", "dummy", "key"]) + "-" + "1" * 24)
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{_TEST_DB}")
 os.environ.setdefault("BOOTSTRAP_ADMIN_USERNAME", "admin")
 os.environ.setdefault("BOOTSTRAP_ADMIN_PASSWORD", "Test!Admin!Pass1")
@@ -84,9 +82,7 @@ def login(client: TestClient, username: str, password: str = "Test!Pass123"):
 class TestAuthorizationEnforcement:
     """AC-13：未登入回 401，越權回 403。授權一律在伺服器端判斷。"""
 
-    @pytest.mark.parametrize(
-        "path", ["/", "/sources", "/audit", "/comparisons/1"]
-    )
+    @pytest.mark.parametrize("path", ["/", "/sources", "/audit", "/comparisons/1"])
     def test_unauthenticated_access_denied(self, client, path):
         response = client.get(path, follow_redirects=False)
 
@@ -142,9 +138,7 @@ class TestAuthorizationEnforcement:
         login(client, "boss")
 
         # 來源不存在會回 404，但已通過 CSRF 與授權檢查（非 403）
-        response = client.post(
-            "/sources/999/test", headers={"X-CSRF-Token": get_csrf(client)}
-        )
+        response = client.post("/sources/999/test", headers={"X-CSRF-Token": get_csrf(client)})
 
         assert response.status_code == 404
 
@@ -261,9 +255,7 @@ class TestCsrfProtection:
         create_user("boss", UserRole.ADMIN.value)
 
         # 情境一：完全沒有 session
-        response = client.post(
-            "/login", data={"username": "boss", "password": "Test!Pass123"}
-        )
+        response = client.post("/login", data={"username": "boss", "password": "Test!Pass123"})
         assert response.status_code == 401
         assert not client.cookies.get("contorell_session") or (
             client.get("/", follow_redirects=False).status_code == 401
@@ -302,9 +294,7 @@ class TestCsrfProtection:
         create_user("boss", UserRole.ADMIN.value)
         login(client, "boss")
 
-        response = client.post(
-            "/sources/999/test", headers={"X-CSRF-Token": get_csrf(client)}
-        )
+        response = client.post("/sources/999/test", headers={"X-CSRF-Token": get_csrf(client)})
 
         # 通過 CSRF 檢查後才會走到「來源不存在」的 404
         assert response.status_code == 404

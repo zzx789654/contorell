@@ -284,22 +284,26 @@ OPTIONAL_ATTRIBUTES: tuple[AttributeOption, ...] = (
     AttributeOption("department", "部門", "使用者所屬部門，常用於依組織單位分析權限分佈。"),
     AttributeOption("title", "職稱", "職務名稱，可用於判斷權限是否與職級相稱。"),
     AttributeOption("company", "公司", "多法人環境下用來區分不同公司的員工。"),
-    AttributeOption("physicalDeliveryOfficeName", "辦公室", "辦公室位置，用於實體存取權限的交叉比對。"),
+    AttributeOption(
+        "physicalDeliveryOfficeName", "辦公室", "辦公室位置，用於實體存取權限的交叉比對。"
+    ),
     AttributeOption("telephoneNumber", "電話", "聯絡電話，方便稽核時直接聯繫帳號負責人。"),
     AttributeOption("mobile", "行動電話", "行動電話號碼。"),
     AttributeOption("manager", "主管 DN", "直屬主管的 DN，可用來找出該由誰簽核權限。"),
     AttributeOption("employeeID", "員工編號", "與 HR 系統對接時，員工編號通常比帳號名更穩定可靠。"),
     AttributeOption("employeeNumber", "員工號碼", "另一個常見的員工識別欄位，視組織慣例使用。"),
     AttributeOption("description", "描述", "AD 帳號的描述欄位，服務帳號的用途常記在這裡。"),
-    AttributeOption("lastLogonTimestamp", "最後登入時間", "約略的最後登入時間（AD 有數天誤差），用於找出長期未使用的殭屍帳號。"),
+    AttributeOption(
+        "lastLogonTimestamp",
+        "最後登入時間",
+        "約略的最後登入時間（AD 有數天誤差），用於找出長期未使用的殭屍帳號。",
+    ),
     AttributeOption("pwdLastSet", "密碼最後設定時間", "用於稽核長期未更換密碼的帳號。"),
     AttributeOption("accountExpires", "帳號到期時間", "約聘或外包人員的帳號到期日。"),
     AttributeOption("memberOf", "所屬群組", "直接隸屬的群組清單（不含巢狀繼承）。資料量可能很大。"),
 )
 
-ATTRIBUTES_BY_NAME: dict[str, AttributeOption] = {
-    opt.name: opt for opt in OPTIONAL_ATTRIBUTES
-}
+ATTRIBUTES_BY_NAME: dict[str, AttributeOption] = {opt.name: opt for opt in OPTIONAL_ATTRIBUTES}
 
 
 def validate_attributes(names: list[str]) -> list[str]:

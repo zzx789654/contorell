@@ -20,7 +20,10 @@ dist/
 build/
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
+# SQLite 測試資料庫（CI 與本機測試會產生，非正式環境使用）
+*.db
 .mypy_cache/
 .ruff_cache/
 

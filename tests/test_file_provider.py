@@ -30,9 +30,7 @@ def make_xlsx(rows: list[list], sheet_name: str = "Sheet1") -> bytes:
 
 
 def make_config(identifier: str = "帳號", **kwargs) -> FileConfig:
-    return FileConfig(
-        column_mapping=ColumnMapping(identifier=identifier, **kwargs)
-    )
+    return FileConfig(column_mapping=ColumnMapping(identifier=identifier, **kwargs))
 
 
 class TestCsvParsing:
@@ -108,13 +106,9 @@ class TestXlsxParsing:
         assert result.accounts[1].identifier == "67890"
 
     def test_status_column_mapped(self):
-        content = make_xlsx(
-            [["帳號", "狀態"], ["alice", "啟用"], ["bob", "停用"]]
-        )
+        content = make_xlsx([["帳號", "狀態"], ["alice", "啟用"], ["bob", "停用"]])
 
-        result = FileProvider(
-            content, "u.xlsx", make_config(status="狀態")
-        ).fetch()
+        result = FileProvider(content, "u.xlsx", make_config(status="狀態")).fetch()
 
         assert result.accounts[0].status is AccountStatus.ENABLED
         assert result.accounts[1].status is AccountStatus.DISABLED
@@ -130,18 +124,14 @@ class TestXlsxParsing:
         buffer = io.BytesIO()
         workbook.save(buffer)
 
-        config = FileConfig(
-            column_mapping=ColumnMapping(identifier="帳號"), sheet_name="目標頁"
-        )
+        config = FileConfig(column_mapping=ColumnMapping(identifier="帳號"), sheet_name="目標頁")
         result = FileProvider(buffer.getvalue(), "u.xlsx", config).fetch()
 
         assert result.accounts[0].identifier == "correct"
 
     def test_missing_sheet_gives_actionable_error(self):
         content = make_xlsx([["帳號"], ["alice"]], sheet_name="實際名稱")
-        config = FileConfig(
-            column_mapping=ColumnMapping(identifier="帳號"), sheet_name="不存在"
-        )
+        config = FileConfig(column_mapping=ColumnMapping(identifier="帳號"), sheet_name="不存在")
 
         with pytest.raises(DataError) as exc:
             FileProvider(content, "u.xlsx", config).fetch()
@@ -187,9 +177,7 @@ class TestErrorHandling:
 
     def test_row_limit_produces_warning(self):
         rows = [["帳號"]] + [[f"user{i}"] for i in range(20)]
-        config = FileConfig(
-            column_mapping=ColumnMapping(identifier="帳號"), max_rows=10
-        )
+        config = FileConfig(column_mapping=ColumnMapping(identifier="帳號"), max_rows=10)
 
         result = FileProvider(make_xlsx(rows), "u.xlsx", config).fetch()
 
@@ -239,8 +227,6 @@ class TestConnectionTest:
     def test_reports_missing_column(self):
         content = make_xlsx([["使用者"], ["alice"]])
 
-        diagnostics = FileProvider(
-            content, "u.xlsx", make_config("帳號")
-        ).test_connection()
+        diagnostics = FileProvider(content, "u.xlsx", make_config("帳號")).test_connection()
 
         assert "不存在" in diagnostics["identifier_column"]

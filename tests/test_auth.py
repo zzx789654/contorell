@@ -46,7 +46,9 @@ def ldap_config() -> LdapConfig:
     )
 
 
-def make_local_user(session: Session, username: str = "admin", password: str = "Str0ng!Pass") -> User:
+def make_local_user(
+    session: Session, username: str = "admin", password: str = "Str0ng!Pass"
+) -> User:
     user = User(
         username=username,
         role=UserRole.ADMIN.value,

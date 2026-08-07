@@ -252,8 +252,7 @@ def parse_ldap_form(data: dict[str, str], *, is_edit: bool = False) -> LdapSourc
         errors["receive_timeout"] = "逾時秒數必須是數字。"
     elif not 1 <= receive_timeout <= 600:
         errors["receive_timeout"] = (
-            f"逾時秒數請介於 1~600 秒，收到 {receive_timeout}。"
-            "大型群組建議設 60 秒以上。"
+            f"逾時秒數請介於 1~600 秒，收到 {receive_timeout}。大型群組建議設 60 秒以上。"
         )
 
     # ---- 額外屬性（白名單）----
