@@ -51,6 +51,10 @@ scripts/deploy.sh       # ② 部署：建置 → 起服務 → 健康檢查 →
 腳本會自行偵測並在缺少時給出安裝提示。詳細用法見下方
 [「自動化安裝與部署」](#自動化安裝與部署)。
 
+> **不想用 Docker？** 可直接部署在 Ubuntu 上（systemd 服務）：
+> `scripts/install.sh --mode local && sudo scripts/deploy-native.sh --sqlite`。
+> 見[「在 Ubuntu 上原生部署（不使用 Docker）」](#在-ubuntu-上原生部署不使用-docker)。
+
 ### 執行測試
 
 `scripts/install.sh` 已把 `pytest` 等所有相依裝進專案的 `.venv`，測試最簡單的跑法是用
@@ -122,7 +126,8 @@ $EDITOR .env        # 或 vim .env / nano .env / code .env
 | 腳本 | 對應 `make` | 做什麼 |
 |---|---|---|
 | [`scripts/install.sh`](scripts/install.sh) | `make install` | 產生 `.env`、以 `secrets` 模組產生高熵金鑰、同步 `DATABASE_URL`、**自動安裝所有套件** |
-| [`scripts/deploy.sh`](scripts/deploy.sh) | `make deploy` | 前置驗證 → 建置 → 啟動 → 健康檢查 → 煙霧測試，**失敗自動回滾** |
+| [`scripts/deploy.sh`](scripts/deploy.sh) | `make deploy` | **Docker** 部署：前置驗證 → 建置 → 啟動 → 健康檢查 → 煙霧測試，**失敗自動回滾** |
+| [`scripts/deploy-native.sh`](scripts/deploy-native.sh) | `make deploy-native` | **原生**部署（不用 Docker）：venv + 資料庫 + systemd 服務（見[專節](#在-ubuntu-上原生部署不使用-docker)） |
 | [`scripts/smoke-test.sh`](scripts/smoke-test.sh) | `make smoke` | 部署後快速確認服務可對外服務（可指向 staging/prod URL） |
 | [`scripts/lib.sh`](scripts/lib.sh) | — | 共用函式庫，不單獨執行 |
 
@@ -205,6 +210,70 @@ uvicorn app.main:app --reload
 ```
 
 `install.sh --mode local` 已幫你把 `.venv` 與所有相依（含 `pytest` 等 dev 工具）裝好，不需再手動 `pip install`。
+
+---
+
+## 在 Ubuntu 上原生部署（不使用 Docker）
+
+不想用 Docker、想直接把服務跑在 Ubuntu 主機上？用 [`scripts/deploy-native.sh`](scripts/deploy-native.sh)。
+它會裝系統相依、建 `.venv`、準備資料庫，並把服務註冊成 **systemd 常駐服務**（開機自啟、崩潰自動重啟）。
+
+> 之所以能輕鬆脫離 Docker：本應用**執行期不寫檔**（Excel 匯出走記憶體串流），
+> 資料模型**不依賴 PostgreSQL 專屬型別**，因此原生部署只需要
+> 「一個 Python venv + 一個資料庫 + 一個 systemd 服務」。
+
+### 最簡：SQLite（零額外服務，一行搞定）
+
+適合單機、少量並發的稽核用途——不必安裝或管理資料庫：
+
+```bash
+scripts/install.sh --mode local        # 建 .venv、產生 .env 與金鑰
+sudo scripts/deploy-native.sh --sqlite # 用檔案型 SQLite，裝好 systemd 服務並啟動
+```
+
+完成後開啟 <http://127.0.0.1:8000>。資料存在 `data/contorell.db`。
+
+### 正式：PostgreSQL（自動安裝並設定）
+
+```bash
+scripts/install.sh --mode local        # 建 .venv、產生 .env（DATABASE_URL 指向本機）
+sudo scripts/deploy-native.sh --with-db # apt 裝 PostgreSQL，用 .env 帳密建 role/db，再啟動服務
+```
+
+> 已經有自架的資料庫？在 `.env` 把 `DATABASE_URL` 指過去，然後只跑 `sudo scripts/deploy-native.sh`（不加 `--with-db`）。
+
+### 部署腳本做了什麼（5 步）
+
+1. **系統相依** — `apt-get install python3 python3-venv python3-dev`（`--with-db` 時加 `postgresql`）。
+2. **Python venv** — 沒有 `.venv` 就呼叫 `install.sh --mode local` 建好並裝齊套件（含 `uvicorn`）。
+3. **資料庫** — `--sqlite` 用檔案；`--with-db` 建 PostgreSQL role/db；否則沿用 `.env` 的 `DATABASE_URL`。資料表由應用啟動時自動建立。
+4. **systemd 服務** — 產生 `/etc/systemd/system/contorell.service`（以非 root 使用者執行、附基本沙箱強化），`enable --now`。
+5. **健康檢查 + 煙霧測試** — 等 `/login` 回應，失敗會印出 `journalctl` 最近 log。
+
+### 管理服務
+
+| 動作 | 指令 |
+|---|---|
+| 服務狀態 | `scripts/deploy-native.sh --status`（或 `systemctl status contorell`） |
+| 即時 log | `scripts/deploy-native.sh --logs`（或 `journalctl -u contorell -f`） |
+| 重啟／停止 | `scripts/deploy-native.sh --restart` ／ `--stop` |
+| 更新程式後重部署 | `git pull && sudo scripts/deploy-native.sh` |
+| 移除服務 | `scripts/deploy-native.sh --uninstall`（保留 venv／.env／資料庫） |
+
+也可用 `make`：`make deploy-native`、`make deploy-native-sqlite`、`make native-status`、`make native-logs`。
+
+### 選項
+
+| 參數 | 用途 |
+|---|---|
+| `--sqlite` | 用檔案型 SQLite（不裝資料庫服務） |
+| `--with-db` | 在本機 apt 安裝並設定 PostgreSQL |
+| `--port 8080` | 指定監聽埠（預設 8000） |
+| `--service-user contorell` | 用專屬系統帳號跑服務（最小權限；預設用執行者帳號） |
+
+> ⚠️ **對外連線與安全**：服務預設監聽 `.env` 的 `APP_BIND`（預設 `127.0.0.1`，只有本機）。
+> 要讓其他網段連進來，設 `APP_BIND=0.0.0.0` 後重跑本腳本並放行防火牆（見[下一節](#讓其他網段的-ip-連線到網頁)）。
+> 對外是明文 HTTP，正式環境請置於 HTTPS 反向代理之後、`APP_ENV=production`。
 
 ---
 
@@ -354,8 +423,9 @@ app/
 ├── export/            # Excel / CSV 匯出
 └── web/               # 路由、模板、靜態資源
 scripts/               # 自動化安裝與部署
-├── install.sh         # 一鍵安裝：產生 .env 與高熵金鑰、檢查前置條件
-├── deploy.sh          # 部署：建置→啟動→健康檢查→煙霧測試，失敗自動回滾
+├── install.sh         # 一鍵安裝：產生 .env 與金鑰、自動裝套件（建 .venv）
+├── deploy.sh          # Docker 部署：建置→啟動→健康檢查→煙霧測試，失敗自動回滾
+├── deploy-native.sh   # 原生部署（不用 Docker）：venv + 資料庫 + systemd 服務
 ├── smoke-test.sh      # 部署後煙霧測試（可指向 staging/prod）
 └── lib.sh             # 共用函式庫
 Makefile               # 常用指令捷徑（make install / deploy / smoke / test …）

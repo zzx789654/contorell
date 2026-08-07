@@ -288,3 +288,25 @@
 **L-29｜再驗證要實跑，不能靠讀上一輪的紀錄背書**
 - 情境：待修改.md 已寫 Round 2「G5 通過」。若直接沿用,等於用歷史紀錄替現況背書。
 - 準則：G5/G6 的價值就在「同一套 Exit Criteria 由機器**每次重跑**」。編排器接手一個舊專案做「完成」時,務必**實際再跑一遍** pytest/ruff/bandit/pip-audit 取得當下的 ground truth,而不是引用上一輪的數字。本輪實跑證實 397 passed、掃描全綠,紀錄才有效。
+
+---
+
+## [2026-08-07] 輪結 Round 5 — Ubuntu 原生部署（不使用 Docker）
+
+### 現況
+- 新增 `scripts/deploy-native.sh`：systemd 常駐、支援 SQLite 或 PostgreSQL、含健康檢查與煙霧測試；Makefile 與 README 同步。Docker 路徑保留不動，原生為並行選項。
+- 過關狀態沿用 Round 4；本輪為交付方式擴充，非功能變更。
+
+### 本輪紀錄（DevSecOps 交付）
+- 先驗證可行性：確認應用**執行期不寫檔**（Excel 匯出走 BytesIO 串流）、模型**無 PG 專屬型別**（SQLite 測試全綠），才敢做原生部署——否則 systemd 沙箱與 SQLite 會踩坑。
+- 實測：原生 uvicorn + SQLite 啟動成功、自動建表、`/login` → 200；systemd 單元經 `systemd-analyze verify` 通過（SQLite/PG 兩種變體皆有效）。
+
+### 教訓 / 準則
+
+**L-30｜做原生部署前，先證明「執行期不寫檔」與「DB 可攜」——這兩點決定難度**
+- 情境：要把一個原本 Docker 化的服務改成 Ubuntu 原生 systemd 部署。
+- 準則：先用 grep 查執行期是否寫本機檔（open(w)/save/上傳落地）、模型是否用 DB 專屬型別。本例兩者皆無（匯出走記憶體、SQLite 測試全綠），原生部署才簡化成「venv+DB+systemd」三件事。若會寫檔，systemd 沙箱要開 `ReadWritePaths`；若綁死 PG 型別，就不能用 SQLite 簡化。**先驗證前提，再決定部署形狀。**
+
+**L-31｜systemd `ProtectHome=read-only` 會悄悄擋掉「家目錄下的 SQLite 寫入」**
+- 情境：專案 clone 在 `/home/user/...`，用 SQLite，systemd 單元加了 `ProtectHome=read-only` 強化。
+- 準則：`ProtectHome=read-only` 讓整個 `/home` 對服務唯讀 → SQLite 寫 `.db/.db-wal` 直接失敗，且錯誤不明顯。修法：保留強化，但對 DB 目錄加 `ReadWritePaths=<data 目錄>`（覆蓋沙箱、只放行該路徑可寫）。**沙箱強化要對照應用實際會寫哪裡，逐一開白名單，而不是照抄一套 Protect* 就上。**
