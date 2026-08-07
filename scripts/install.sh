@@ -55,16 +55,26 @@ cd "$PROJECT_ROOT"
 # ---------------------------------------------------------------
 section "步驟 1／4：檢查前置條件（模式：$MODE）"
 # ---------------------------------------------------------------
-require_cmd python3 "請安裝 Python 3.12+（金鑰產生需要）" || exit 1
+require_cmd python3 "請安裝 Python 3.12+（產生金鑰與 .env 需要）" || exit 1
 PY_OK=$(python3 -c 'import sys; print(1 if sys.version_info[:2] >= (3,12) else 0)')
 [ "$PY_OK" = "1" ] || warn "偵測到的 Python 低於 3.12；金鑰產生仍可運作，但本機模式需要 3.12+"
 
+# 重要：前置條件缺少「套件安裝工具」時，只跳過套件安裝步驟，
+# **絕不因此中止 .env 的產生**——不然使用者沒裝 Docker 就連設定檔都拿不到。
+COMPOSE=""
+SKIP_BUILD=0
 if [ "$MODE" = "docker" ]; then
-    require_cmd docker "請安裝 Docker Engine：https://docs.docker.com/engine/install/" || exit 1
-    COMPOSE="$(detect_compose)" || die "找不到 docker compose（v2）或 docker-compose（v1），請先安裝"
-    ok "Docker 與 Compose 就緒（$COMPOSE）"
+    if ! command -v docker >/dev/null 2>&1; then
+        warn "未偵測到 Docker —— 仍會照常產生 .env，但本次略過映像建置。"
+        warn "裝好 Docker 後執行 scripts/deploy.sh 即可建置並啟動：https://docs.docker.com/engine/install/"
+        SKIP_BUILD=1
+    elif ! COMPOSE="$(detect_compose)"; then
+        warn "有 Docker 但找不到 compose（v2/v1）—— 仍會產生 .env，補裝 compose 後再部署。"
+        SKIP_BUILD=1
+    else
+        ok "Docker 與 Compose 就緒（$COMPOSE）"
+    fi
 else
-    require_cmd python3 "請安裝 Python 3.12+" || exit 1
     if command -v uv >/dev/null 2>&1; then
         ok "偵測到 uv（將用它建立 .venv 並安裝套件）"
     else
@@ -133,35 +143,57 @@ fi
 # .env 權限收緊，避免同機其他使用者讀到密鑰
 chmod 600 "$ENV_FILE" 2>/dev/null || true
 
+# 安裝本機 Python 套件到 .venv —— 這是讓 `pytest`／`ruff` 等在本機直接跑得起來的關鍵。
+# 兩種模式都裝：Docker 模式的映像有自己的一份（供部署），但在「本機跑測試」時
+# 用的是本機 Python，因此仍需要一份本機 .venv，否則會出現「模組沒下載、無法執行測試」。
+install_local_venv() {
+    # 需要 Python 3.12+；uv 可自帶 3.12，沒有 uv 時才要求系統 python3 已是 3.12+
+    if ! command -v uv >/dev/null 2>&1 && [ "$PY_OK" != "1" ]; then
+        if [ "$MODE" = "local" ]; then
+            die "本機模式需要 Python 3.12+（或安裝 uv 由它自帶）才能安裝套件"
+        fi
+        warn "本機 Python 低於 3.12 且未裝 uv —— 略過本機 .venv。"
+        warn "要在本機跑測試，請裝 Python 3.12+ 或 uv 後重跑；或用 'make test' 在容器內跑。"
+        return 0
+    fi
+
+    if command -v uv >/dev/null 2>&1; then
+        [ -d "$PROJECT_ROOT/.venv" ] || uv venv --python 3.12 "$PROJECT_ROOT/.venv"
+        log "以 uv 安裝所有相依套件（含 pytest、ruff 等 dev 工具）…"
+        ( cd "$PROJECT_ROOT" && uv pip install -e ".[dev]" ) && ok "本機套件安裝完成（.venv）" || _deps_failed
+    else
+        [ -d "$PROJECT_ROOT/.venv" ] || python3 -m venv "$PROJECT_ROOT/.venv"
+        log "以 pip 安裝所有相依套件（含 pytest、ruff 等 dev 工具）…"
+        "$PROJECT_ROOT/.venv/bin/python" -m pip install --quiet --upgrade pip
+        "$PROJECT_ROOT/.venv/bin/pip" install -e "$PROJECT_ROOT[dev]" && ok "本機套件安裝完成（.venv）" || _deps_failed
+    fi
+}
+_deps_failed() {
+    [ "$MODE" = "local" ] && die "套件安裝失敗，請檢查上方錯誤輸出"
+    warn "本機套件安裝未完成；可稍後重跑 scripts/install.sh，或在容器內跑測試（make test）。"
+}
+
 # ---------------------------------------------------------------
 section "步驟 3／4：安裝所有套件"
 # ---------------------------------------------------------------
 if [ "$NO_DEPS" -eq 1 ]; then
     log "--no-deps：略過套件安裝"
-elif [ "$MODE" = "docker" ]; then
-    # Docker 模式：套件在映像建置時安裝（見 Dockerfile 的 pip install）。
-    # 這裡先 build 好，deploy 時就不必等；build 失敗不中斷安裝（.env 已就緒，可稍後再 build）。
-    log "建置 Docker 映像（會把所有 Python 套件裝進映像，首次較久）…"
-    if $COMPOSE build app 2>&1 | tail -3; then
-        ok "映像建置完成，所有套件已裝入映像"
-    else
-        warn "映像建置未完成（可能 Docker daemon 未啟動）。稍後可用 scripts/deploy.sh 重試——它會自動 build。"
-    fi
 else
-    # 本機模式：建立 .venv 並安裝專案與開發相依（fastapi、uvicorn、pytest… 全部）
-    if command -v uv >/dev/null 2>&1; then
-        [ -d "$PROJECT_ROOT/.venv" ] || uv venv --python 3.12 "$PROJECT_ROOT/.venv"
-        log "以 uv 安裝所有相依套件（含 dev）…"
-        ( cd "$PROJECT_ROOT" && uv pip install -e ".[dev]" ) \
-            && ok "套件安裝完成（.venv）" \
-            || die "套件安裝失敗，請檢查上方錯誤輸出"
-    else
-        [ -d "$PROJECT_ROOT/.venv" ] || python3 -m venv "$PROJECT_ROOT/.venv"
-        log "以 pip 安裝所有相依套件（含 dev）…"
-        "$PROJECT_ROOT/.venv/bin/python" -m pip install --quiet --upgrade pip
-        "$PROJECT_ROOT/.venv/bin/pip" install -e "$PROJECT_ROOT[dev]" \
-            && ok "套件安裝完成（.venv）" \
-            || die "套件安裝失敗，請檢查上方錯誤輸出"
+    # (1) 本機 .venv —— 讓 pytest / ruff 直接在本機跑（解決「測試模組沒下載」）
+    install_local_venv
+
+    # (2) Docker 模式額外 build 映像（套件也裝進映像，供 deploy 使用）
+    if [ "$MODE" = "docker" ]; then
+        if [ "$SKIP_BUILD" -eq 1 ] || [ -z "$COMPOSE" ]; then
+            warn "略過映像建置（Docker／compose 尚未就緒）。.env 已建立，裝好 Docker 後執行 scripts/deploy.sh 會自動 build。"
+        else
+            log "建置 Docker 映像（把所有套件裝進映像，首次較久）…"
+            if $COMPOSE build app 2>&1 | tail -3; then
+                ok "映像建置完成，所有套件已裝入映像"
+            else
+                warn "映像建置未完成（可能 Docker daemon 未啟動）。稍後可用 scripts/deploy.sh 重試——它會自動 build。"
+            fi
+        fi
     fi
 fi
 

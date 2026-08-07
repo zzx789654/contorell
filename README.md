@@ -53,26 +53,44 @@ scripts/deploy.sh       # ② 部署：建置 → 起服務 → 健康檢查 →
 
 ### 執行測試
 
+`scripts/install.sh` 已把 `pytest` 等所有相依裝進專案的 `.venv`，測試最簡單的跑法是用
+`make`（會自動使用 `.venv`，不必手動 activate）：
+
 ```bash
+make test          # 執行完整測試套件（含覆蓋率）
+```
+
+或先啟用 `.venv` 再直接下 `pytest`：
+
+```bash
+source .venv/bin/activate                         # 啟用 install.sh 建好的環境
 pytest tests/ -v                                  # 全部測試
 pytest tests/ --cov=app --cov-report=term-missing # 含覆蓋率
 pytest tests/ -m "not slow"                       # 跳過效能測試
 ```
 
+> 出現 `ModuleNotFoundError`（模組沒下載）？多半是**沒有用 `.venv`**——
+> 用 `make test`，或先 `source .venv/bin/activate` 再跑。
+> 若當初是用 `--no-deps` 安裝或 `.venv` 不存在，補跑一次 `scripts/install.sh --mode local` 即可裝好。
+
 ---
 
 ## 需要編輯的設定檔（檔案路徑）
 
-**日常使用只需要編輯一個檔案：專案根目錄的 [`.env`](.env)。** 所有連線資訊與金鑰都集中在這裡；其餘檔案由腳本自動產生，或屬進階調整。
+> **🔎 剛 clone 下來找不到 `.env`？這是正常的。**
+> `.env` 內含金鑰與密碼，**刻意不進版控**（已列在 `.gitignore`），所以 git clone 下來只會有範本 `.env.example`。
+> **先在專案根目錄執行 `scripts/install.sh`**，它會從範本自動建立 `.env` 並填好金鑰——**跑完 `.env` 才會出現**，接著才能編輯它。
 
-| 檔案路徑 | 需要編輯嗎 | 內容 / 何時才動 |
-|---|---|---|
-| **`./.env`** | ✅ **要**（由 `scripts/install.sh` 自動建立） | 你唯一需要編輯的設定檔——AD/LDAP 連線、資料庫、對外綁定、管理員退路帳號、金鑰 |
-| `./.env.example` | ❌ 唯讀範本，**勿直接改** | `.env` 的樣板;只有要新增設定項時才動它 |
-| `./docker-compose.yml` | ⚙️ 通常不用 | 服務組成與埠對映。對外綁定已可由 `.env` 的 `APP_BIND` 控制，不必改此檔 |
-| `./.github/workflows/ci.yml` | ⚙️ 只在調 CI 時 | CI 管線(lint／測試／資安掃描 gate) |
+**日常使用只需要編輯一個檔案：專案根目錄的 `.env`。** 所有連線資訊與金鑰都集中在這裡；其餘檔案由腳本自動產生，或屬進階調整。
 
-> `.env` 不存在？執行 `scripts/install.sh` 會從 `.env.example` 自動建立並填好金鑰。
+| 檔案路徑 | 版控狀態 | 需要編輯嗎 | 內容 / 何時才動 |
+|---|---|---|---|
+| **`./.env`** | 🚫 **不進版控**（跑 `install.sh` 後才產生） | ✅ **要** | 你唯一需要編輯的設定檔——AD/LDAP 連線、資料庫、對外綁定、管理員退路帳號、金鑰 |
+| `./.env.example` | ✅ 在版控裡（clone 就有） | ❌ 唯讀範本，**勿直接改** | `.env` 的樣板;只有要新增設定項時才動它 |
+| `./docker-compose.yml` | ✅ 在版控裡 | ⚙️ 通常不用 | 服務組成與埠對映。對外綁定已可由 `.env` 的 `APP_BIND` 控制，不必改此檔 |
+| `./.github/workflows/ci.yml` | ✅ 在版控裡 | ⚙️ 只在調 CI 時 | CI 管線(lint／測試／資安掃描 gate) |
+
+> 快速建立 `.env`：`scripts/install.sh`（完整）或 `scripts/install.sh --no-deps`（只產生設定檔、先不裝套件）。
 
 ### 編輯 `.env`（專案根目錄）
 
