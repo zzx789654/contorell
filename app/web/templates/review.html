@@ -76,7 +76,7 @@
           <th scope="col">密碼到期日</th>
           <th scope="col">帳號到期日</th>
           {% for name in s.entitlement_names %}
-            <th scope="col" class="num">{{ name }}</th>
+            <th scope="col" class="perm-col{% if loop.first %} perm-first{% endif %}">{{ name }}</th>
           {% endfor %}
         </tr>
       </thead>
@@ -94,7 +94,7 @@
             <td>{{ attr.get('pwd_expires', '') }}</td>
             <td>{{ attr.get('account_expires', '') }}</td>
             {% for name in s.entitlement_names %}
-              <td class="num">
+              <td class="perm-col{% if loop.first %} perm-first{% endif %}">
                 {% if p.access[name] %}
                   <span class="access-yes" title="具有 {{ name }}"><span aria-hidden="true">✓</span><span class="sr-only">有</span></span>
                 {% else %}
