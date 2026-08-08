@@ -251,3 +251,48 @@ class TestManualEntitlement:
             follow_redirects=False,
         )
         assert client.get("/review/manual").status_code == 403
+
+
+class TestHomeFilterAutosave:
+    def test_home_is_review_matrix(self, client):
+        _seed()
+        login_admin(client)
+        r = client.get("/")
+        assert r.status_code == 200
+        assert "人員權限矩陣" in r.text
+        assert "王小明" in r.text
+
+    def test_review_url_redirects_to_home(self, client):
+        login_admin(client)
+        r = client.get("/review", follow_redirects=False)
+        assert r.status_code == 307
+        assert r.headers["location"] == "/"
+
+    def test_search_filters_people(self, client):
+        _seed()
+        login_admin(client)
+        r = client.get("/", params={"q": "李大華"})
+        assert r.status_code == 200
+        assert "李大華" in r.text
+        assert "王小明" not in r.text  # 被搜尋濾掉
+
+    def test_filter_by_department(self, client):
+        _seed()
+        login_admin(client)
+        r = client.get("/", params={"dept": "財務部"})
+        assert "李大華" in r.text  # 財務部
+        assert "王小明" not in r.text  # 資訊部
+
+    def test_note_autosave_via_htmx(self, client):
+        sid = _seed()
+        login_admin(client)
+        r = client.post(
+            f"/review/source/{sid}/note",
+            data={"account_key": "0009", "note": "處理中"},
+            headers={"HX-Request": "true", "X-CSRF-Token": get_csrf(client)},
+        )
+        assert r.status_code == 200
+        assert "已儲存" in r.text
+        with SessionLocal() as db:
+            note = db.query(EntitlementNote).filter_by(source_id=sid, account_key="0009").one()
+            assert note.note == "處理中"

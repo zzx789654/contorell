@@ -946,3 +946,8 @@ textarea:focus { border-color: var(--primary); }
 /* 註記輸入框在分頁佔滿欄寬，較好填寫 */
 .annotation-cell .inline-form { width: 100%; flex-wrap: nowrap; }
 .annotation-cell .inline-form input[type="text"] { flex: 1 1 auto; min-width: 0; }
+
+/* --- 註記自動儲存提示（Round 9） --- */
+.save-status { font-size: 0.8rem; color: var(--ok-text); white-space: nowrap; }
+.save-status .saved-flag { margin: 0; }
+.filter-form select, .filter-form input[type="search"] { min-height: 40px; }
