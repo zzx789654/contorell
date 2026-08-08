@@ -42,7 +42,15 @@ from app.web.deps import (
     client_ip,
     record_audit,
 )
-from app.web.services import build_provider, build_review, encrypt_secret, store_snapshot
+from app.web.services import (
+    build_provider,
+    build_review,
+    create_manual_entitlement,
+    encrypt_secret,
+    entitlement_detail,
+    store_snapshot,
+    upsert_entitlement_note,
+)
 from app.web.source_forms import (
     FormValidationError,
     config_to_form_values,
@@ -145,6 +153,13 @@ async def access_review_page(request: Request, session: SessionDep, user: Curren
     master_source = session.scalars(
         select(DataSource).where(DataSource.is_active, DataSource.is_authoritative).limit(1)
     ).first()
+    # 權限群組名稱 → 來源 id，供矩陣連到各自的分頁
+    entitlement_links = {
+        s.name: s.id
+        for s in session.scalars(
+            select(DataSource).where(DataSource.is_active, DataSource.is_authoritative.is_(False))
+        )
+    }
     return templates.TemplateResponse(
         request,
         "review.html",
@@ -154,8 +169,95 @@ async def access_review_page(request: Request, session: SessionDep, user: Curren
             "active_nav": "review",
             "review": review,
             "master_source": master_source,
+            "entitlement_links": entitlement_links,
         },
     )
+
+
+@router.get("/review/source/{source_id}")
+async def entitlement_detail_page(
+    request: Request, session: SessionDep, user: CurrentUser, source_id: int
+) -> Response:
+    """權限來源分頁（Round 8，規格第 6 點）：列出該來源成員、狀態、異常與註記。"""
+    detail = entitlement_detail(session, source_id)
+    if detail is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "找不到此權限來源。")
+    return templates.TemplateResponse(
+        request,
+        "entitlement_detail.html",
+        {
+            "request": request,
+            "user": user,
+            "active_nav": "review",
+            "detail": detail,
+        },
+    )
+
+
+@router.get("/review/manual")
+async def manual_entitlement_form(request: Request, user: AdminUser) -> Response:
+    """手動 KEY-IN 權限名單的建立表單（管理者）。"""
+    return templates.TemplateResponse(
+        request,
+        "manual_entitlement.html",
+        {"request": request, "user": user, "active_nav": "review"},
+    )
+
+
+@router.post("/review/manual", dependencies=[CsrfProtected])
+async def manual_entitlement_create(
+    request: Request,
+    session: SessionDep,
+    user: AdminUser,
+    name: str = Form(...),
+    account_ids: str = Form(""),
+) -> Response:
+    """建立手動 KEY-IN 權限來源（規格第 5 點）。"""
+    if not name.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "請填寫權限名稱。")
+
+    source = create_manual_entitlement(session, name, account_ids, user.username)
+    record_audit(
+        session,
+        user,
+        "manual_entitlement_create",
+        target_type="data_source",
+        target_id=str(source.id),
+        detail=f"手動建立權限來源「{source.name}」",
+        ip_address=client_ip(request),
+    )
+    session.commit()
+    return RedirectResponse(f"/review/source/{source.id}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/review/source/{source_id}/note", dependencies=[CsrfProtected])
+async def save_entitlement_note(
+    request: Request,
+    session: SessionDep,
+    user: AdminUser,
+    source_id: int,
+    account_key: str = Form(...),
+    note: str = Form(""),
+) -> Response:
+    """儲存某成員的自訂註記（管理者）。"""
+    detail = entitlement_detail(session, source_id)
+    if detail is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "找不到此權限來源。")
+
+    upsert_entitlement_note(
+        session, source_id, account_key.strip().lower(), note.strip(), user.username
+    )
+    record_audit(
+        session,
+        user,
+        "entitlement_note",
+        target_type="data_source",
+        target_id=str(source_id),
+        detail=f"帳號 {account_key} 註記已更新",
+        ip_address=client_ip(request),
+    )
+    session.commit()
+    return RedirectResponse(f"/review/source/{source_id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/compare", dependencies=[CsrfProtected])

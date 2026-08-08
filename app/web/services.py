@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 
 from sqlalchemy import desc, select
@@ -13,7 +14,13 @@ from sqlalchemy.orm import Session
 
 from app.access_review.engine import AccessReviewResult, Entitlement, build_access_review
 from app.config import get_settings
-from app.db.models import DataSource, Snapshot, SnapshotAccount, SourceType
+from app.db.models import (
+    DataSource,
+    EntitlementNote,
+    Snapshot,
+    SnapshotAccount,
+    SourceType,
+)
 from app.providers.api_provider import ApiConfig, ApiProvider, AuthType, PaginationType
 from app.providers.api_provider import FieldMapping as ApiFieldMapping
 from app.providers.base import (
@@ -221,3 +228,142 @@ def build_review(session: Session) -> AccessReviewResult | None:
         entitlements.append(Entitlement(name=source.name, members=snapshot_to_fetch_result(snap)))
 
     return build_access_review(master_fr, entitlements)
+
+
+def master_enabled_keys(session: Session) -> set[str]:
+    """權威主檔（AD 已啟用帳號）最新快照的正規化鍵集合。找不到回空集合。"""
+    master_source = session.scalars(
+        select(DataSource).where(DataSource.is_active, DataSource.is_authoritative).limit(1)
+    ).first()
+    if master_source is None:
+        return set()
+    snap = latest_snapshot(session, master_source.id)
+    if snap is None:
+        return set()
+    return {a.normalized_key for a in snap.accounts}
+
+
+def entitlement_detail(session: Session, source_id: int) -> dict | None:
+    """組出某權限來源分頁所需資料：成員 + 狀態 + 異常旗標 + 註記（規格第 6 點）。
+
+    每個成員對照「已啟用主檔」判定：
+    - 在主檔內 → 正常（在職且具此權限）。
+    - 不在主檔、AD 狀態為停用 → 異常「停用未回收」。
+    - 不在主檔、其餘 → 異常「孤兒帳號」（KEY-IN 帳號查無亦歸此類）。
+    """
+    source = session.get(DataSource, source_id)
+    if source is None:
+        return None
+
+    snap = latest_snapshot(session, source_id)
+    members = list(snap.accounts) if snap else []
+    master_keys = master_enabled_keys(session)
+    notes = {
+        n.account_key: n.note
+        for n in session.scalars(
+            select(EntitlementNote).where(EntitlementNote.source_id == source_id)
+        )
+    }
+
+    rows: list[dict] = []
+    anomaly_count = 0
+    for m in members:
+        in_master = m.normalized_key in master_keys
+        if in_master:
+            anomaly = ""
+        elif m.status == "disabled":
+            anomaly = "disabled"
+        else:
+            anomaly = "orphan"
+        if anomaly:
+            anomaly_count += 1
+        rows.append(
+            {
+                "identifier": m.identifier,
+                "account_key": m.normalized_key,
+                "display_name": m.display_name,
+                "member_status": m.status,
+                "in_master": in_master,
+                "anomaly": anomaly,
+                "note": notes.get(m.normalized_key, ""),
+            }
+        )
+
+    # 異常排在前面，方便稽核
+    rows.sort(key=lambda r: (0 if r["anomaly"] else 1, r["identifier"]))
+    return {
+        "source": source,
+        "rows": rows,
+        "member_count": len(members),
+        "anomaly_count": anomaly_count,
+        "fetched_at": snap.fetched_at if snap else None,
+    }
+
+
+def parse_manual_ids(raw: str) -> list[str]:
+    """把手動貼上的帳號字串（換行／逗號／空白分隔）解析成去重清單，保留原始大小寫。"""
+    tokens = re.split(r"[\s,;]+", raw or "")
+    seen: set[str] = set()
+    result: list[str] = []
+    for token in tokens:
+        cleaned = token.strip()
+        if not cleaned:
+            continue
+        key = cleaned.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(cleaned)
+    return result
+
+
+def create_manual_entitlement(
+    session: Session, name: str, raw_ids: str, username: str
+) -> DataSource:
+    """以手動 KEY-IN 的帳號清單建立一個權限來源與其快照（規格第 5 點）。
+
+    KEY-IN 的帳號狀態未知；是否仍啟用交由權限檢視對照「已啟用主檔」判定——
+    在主檔內＝在職有效，不在＝異常（停用未回收／查無）。
+    """
+    ids = parse_manual_ids(raw_ids)
+    source = DataSource(
+        name=name.strip(),
+        source_type=SourceType.FILE.value,
+        description="手動 KEY-IN 權限名單",
+        config_json={"manual": True},
+        is_authoritative=False,
+        is_active=True,
+        created_by=username,
+    )
+    session.add(source)
+    session.flush()
+
+    result = FetchResult(
+        accounts=[Account(identifier=i, status=AccountStatus.UNKNOWN) for i in ids],
+        fetched_at=datetime.now(UTC),
+        source_label=name,
+        total_reported=len(ids),
+    )
+    store_snapshot(session, source, result, username)
+    return source
+
+
+def upsert_entitlement_note(
+    session: Session, source_id: int, account_key: str, note: str, username: str
+) -> None:
+    """新增或更新某來源某帳號的註記（規格第 6 點）。"""
+    existing = session.scalars(
+        select(EntitlementNote).where(
+            EntitlementNote.source_id == source_id,
+            EntitlementNote.account_key == account_key,
+        )
+    ).first()
+    if existing is None:
+        session.add(
+            EntitlementNote(
+                source_id=source_id, account_key=account_key, note=note, updated_by=username
+            )
+        )
+    else:
+        existing.note = note
+        existing.updated_by = username

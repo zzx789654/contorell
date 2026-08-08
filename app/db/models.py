@@ -327,3 +327,35 @@ class Annotation(Base):
 
     # 一列的同一個欄位只能有一個值
     __table_args__ = (UniqueConstraint("row_id", "field_key", name="uq_annotation_row_field"),)
+
+
+# ---------------------------------------------------------------------------
+# 權限檢視（Round 8）：對某權限來源中某帳號的自訂註記
+# ---------------------------------------------------------------------------
+
+
+class EntitlementNote(Base):
+    """管理者在「權限來源分頁」對某成員留下的處置註記（Round 8，規格第 6 點）。
+
+    以（來源, 帳號正規化鍵）為鍵，與比對用的 :class:`Annotation` 分開——
+    後者掛在某一次比對的某一列，本註記則跟著「來源中的帳號」持續存在。
+    仍屬概念四（標註）的延伸，不新增第五個核心概念。
+    """
+
+    __tablename__ = "entitlement_notes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int] = mapped_column(
+        ForeignKey("data_sources.id", ondelete="CASCADE"), index=True
+    )
+    account_key: Mapped[str] = mapped_column(String(512), index=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+    updated_by: Mapped[str] = mapped_column(String(255), default="")
+
+    __table_args__ = (
+        UniqueConstraint("source_id", "account_key", name="uq_entnote_source_account"),
+    )

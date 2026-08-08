@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% set active_nav = 'review' %}
+{% set src = detail.source %}
+{% block title %}{{ src.name }} — 權限來源 — contorell{% endblock %}
+
+{% block content %}
+<p class="breadcrumb"><a href="/review">權限檢視</a> ／ 權限來源</p>
+
+<div class="page-header">
+  <div>
+    <h1>{{ src.name }}</h1>
+    <p class="lead">
+      此權限群組的成員名單。不在 AD 已啟用主檔內的帳號會標為異常（該收沒收），可逐筆填寫處置註記。
+    </p>
+  </div>
+</div>
+
+<div class="summary-cards">
+  <div class="card">
+    <p class="card-label">成員總數</p>
+    <p class="card-value">{{ detail.member_count }}</p>
+    <p class="card-note">
+      {% if detail.fetched_at %}快照 {{ detail.fetched_at.strftime('%Y-%m-%d %H:%M') }}{% else %}尚無快照{% endif %}
+    </p>
+  </div>
+  <div class="card {% if detail.anomaly_count > 0 %}card-risk-high{% endif %}">
+    <p class="card-label">異常</p>
+    <p class="card-value">{{ detail.anomaly_count }}</p>
+    <p class="card-note">停用未回收 / 孤兒帳號</p>
+  </div>
+</div>
+
+{% if detail.rows %}
+<table class="data-table">
+  <caption class="sr-only">{{ src.name }} 成員清單與註記</caption>
+  <thead>
+    <tr>
+      <th scope="col">帳號</th>
+      <th scope="col">名稱</th>
+      <th scope="col">狀態</th>
+      <th scope="col">註記</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in detail.rows %}
+    <tr class="{% if r.anomaly == 'disabled' %}risk-row-high{% endif %}">
+      <td class="mono">{{ r.identifier }}</td>
+      <td>{{ r.display_name }}</td>
+      <td>
+        {% if r.anomaly == 'disabled' %}
+          <span class="risk-badge risk-high"><span aria-hidden="true">■</span> 停用未回收</span>
+        {% elif r.anomaly == 'orphan' %}
+          <span class="risk-badge risk-medium"><span aria-hidden="true">◆</span> 孤兒帳號</span>
+        {% else %}
+          <span class="tag tag-ok"><span aria-hidden="true">✓</span> 在職</span>
+        {% endif %}
+      </td>
+      <td class="annotation-cell">
+        {% if user.is_admin %}
+          <form method="post" action="/review/source/{{ src.id }}/note" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+            <input type="hidden" name="account_key" value="{{ r.account_key }}">
+            <label class="sr-only" for="note-{{ loop.index }}">{{ r.identifier }} 的註記</label>
+            <input type="text" id="note-{{ loop.index }}" name="note" value="{{ r.note }}"
+                   placeholder="填寫處置說明⋯⋯" maxlength="500">
+            <button type="submit" class="btn btn-small">儲存</button>
+          </form>
+        {% else %}
+          {{ r.note or '—' }}
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  <div class="empty-state">
+    <p class="empty-icon" aria-hidden="true">📄</p>
+    <h2>此來源尚無成員快照</h2>
+    <p class="muted">請到「資料來源」抓取一次此來源的名單後再回來檢視。</p>
+    <a href="/sources" class="btn btn-primary">前往資料來源</a>
+  </div>
+{% endif %}
+{% endblock %}

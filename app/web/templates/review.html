@@ -3,8 +3,15 @@
 {% block title %}權限檢視 — contorell{% endblock %}
 
 {% block content %}
-<h1>權限檢視</h1>
-<p class="lead">以 AD 已啟用人員為主，逐一檢視每個人在各權限群組中是否具有權限，並標出該收沒收的異常。</p>
+<div class="page-header">
+  <div>
+    <h1>權限檢視</h1>
+    <p class="lead">以 AD 已啟用人員為主，逐一檢視每個人在各權限群組中是否具有權限，並標出該收沒收的異常。</p>
+  </div>
+  {% if user.is_admin %}
+    <a href="/review/manual" class="btn btn-primary">＋ 手動新增權限名單</a>
+  {% endif %}
+</div>
 
 {% if review is none %}
   {# empty state：尚未設定權威主檔或主檔無快照 #}
@@ -26,8 +33,11 @@
       <p class="card-note">AD 已啟用帳號</p>
     </div>
     {% for name in s.entitlement_names %}
+    {% set sid = entitlement_links.get(name) %}
     <div class="card">
-      <p class="card-label">{{ name }}</p>
+      <p class="card-label">
+        {% if sid %}<a href="/review/source/{{ sid }}">{{ name }}</a>{% else %}{{ name }}{% endif %}
+      </p>
       <p class="card-value">{{ s.granted_counts[name] }}</p>
       <p class="card-note">
         {% if s.anomaly_counts[name] > 0 %}
