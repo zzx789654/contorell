@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from app.access_review.engine import AccessReviewResult, Entitlement, build_access_review
 from app.config import get_settings
 from app.db.models import DataSource, Snapshot, SnapshotAccount, SourceType
 from app.providers.api_provider import ApiConfig, ApiProvider, AuthType, PaginationType
@@ -171,3 +173,51 @@ def snapshot_to_fetch_result(snapshot: Snapshot) -> FetchResult:
 def encrypt_secret(plaintext: str) -> str:
     """加密要存入資料庫的敏感值。"""
     return _secret_box().encrypt(plaintext) if plaintext else ""
+
+
+# ---------------------------------------------------------------------------
+# 權限檢視（Round 8）：以「主檔（AD 已啟用帳號）」為主，逐一比對各權限群組
+# ---------------------------------------------------------------------------
+
+
+def latest_snapshot(session: Session, source_id: int) -> Snapshot | None:
+    """取得某來源最新的一份快照（找不到回 None）。"""
+    return session.scalars(
+        select(Snapshot)
+        .where(Snapshot.source_id == source_id)
+        .order_by(desc(Snapshot.fetched_at))
+        .limit(1)
+    ).first()
+
+
+def build_review(session: Session) -> AccessReviewResult | None:
+    """從各來源的最新快照組出「人員 × 權限」檢視。
+
+    角色分派沿用既有的 ``is_authoritative`` 旗標：
+    - **主檔** = 權威來源（AD 已啟用帳號），做為每列人員的權限基準。
+    - **權限群組** = 其餘啟用中的來源（網路權限／VPN／LINE…），依名稱排序成欄。
+
+    尚未設定權威主檔、或主檔還沒有任何快照時回 ``None``，由路由層顯示引導。
+    """
+    active = list(
+        session.scalars(select(DataSource).where(DataSource.is_active).order_by(DataSource.name))
+    )
+    master_source = next((s for s in active if s.is_authoritative), None)
+    if master_source is None:
+        return None
+
+    master_snap = latest_snapshot(session, master_source.id)
+    if master_snap is None:
+        return None
+    master_fr = snapshot_to_fetch_result(master_snap)
+
+    entitlements: list[Entitlement] = []
+    for source in active:
+        if source.is_authoritative:
+            continue
+        snap = latest_snapshot(session, source.id)
+        if snap is None:
+            continue
+        entitlements.append(Entitlement(name=source.name, members=snapshot_to_fetch_result(snap)))
+
+    return build_access_review(master_fr, entitlements)

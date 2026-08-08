@@ -42,7 +42,7 @@ from app.web.deps import (
     client_ip,
     record_audit,
 )
-from app.web.services import build_provider, encrypt_secret, store_snapshot
+from app.web.services import build_provider, build_review, encrypt_secret, store_snapshot
 from app.web.source_forms import (
     FormValidationError,
     config_to_form_values,
@@ -130,6 +130,30 @@ async def home(request: Request, session: SessionDep, user: CurrentUser) -> Resp
             "user": user,
             "sources": sources,
             "recent_comparisons": recent,
+        },
+    )
+
+
+@router.get("/review")
+async def access_review_page(request: Request, session: SessionDep, user: CurrentUser) -> Response:
+    """權限檢視主畫面（Round 8）：AD 已啟用人員 × 各權限群組矩陣 + 異常。
+
+    以權威來源（AD）的最新快照為主檔，其餘啟用來源為權限群組。
+    尚未設定權威主檔或主檔無快照時，``review`` 為 None，由模板顯示引導。
+    """
+    review = build_review(session)
+    master_source = session.scalars(
+        select(DataSource).where(DataSource.is_active, DataSource.is_authoritative).limit(1)
+    ).first()
+    return templates.TemplateResponse(
+        request,
+        "review.html",
+        {
+            "request": request,
+            "user": user,
+            "active_nav": "review",
+            "review": review,
+            "master_source": master_source,
         },
     )
 
