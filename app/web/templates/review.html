@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% set active_nav = 'review' %}
+{% block title %}權限檢視 — contorell{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>權限檢視</h1>
+    <p class="lead">以 AD 已啟用人員為主，逐一檢視每個人在各權限群組中是否具有權限，並標出該收沒收的異常。</p>
+  </div>
+  {% if user.is_admin %}
+    <a href="/review/manual" class="btn btn-primary">＋ 手動新增權限名單</a>
+  {% endif %}
+</div>
+
+{% if review is none %}
+  {# empty state：尚未設定權威主檔或主檔無快照 #}
+  <div class="empty-state" role="region" aria-labelledby="rv-empty">
+    <p class="empty-icon" aria-hidden="true">👥</p>
+    <h2 id="rv-empty">還需要一份「人員主檔」</h2>
+    <p>權限檢視以一個<strong>權威來源（AD 已啟用帳號）</strong>為主檔，其餘來源為權限群組。</p>
+    <p class="muted">請到「資料來源」新增並勾選一個 AD 來源為權威來源、抓一次快照，即可看到檢視表。</p>
+    <a href="/sources" class="btn btn-primary">前往設定資料來源</a>
+  </div>
+{% else %}
+  {% set s = review.summary %}
+
+  {# 摘要卡片：總人數、各權限已授予數、異常總數 #}
+  <div class="summary-cards">
+    <div class="card">
+      <p class="card-label">在職人員（主檔）</p>
+      <p class="card-value">{{ s.person_count }}</p>
+      <p class="card-note">AD 已啟用帳號</p>
+    </div>
+    {% for name in s.entitlement_names %}
+    {% set sid = entitlement_links.get(name) %}
+    <div class="card">
+      <p class="card-label">
+        {% if sid %}<a href="/review/source/{{ sid }}">{{ name }}</a>{% else %}{{ name }}{% endif %}
+      </p>
+      <p class="card-value">{{ s.granted_counts[name] }}</p>
+      <p class="card-note">
+        {% if s.anomaly_counts[name] > 0 %}
+          <span class="risk-badge risk-high"><span aria-hidden="true">▲</span> {{ s.anomaly_counts[name] }} 異常</span>
+        {% else %}正常{% endif %}
+      </p>
+    </div>
+    {% endfor %}
+    <div class="card {% if s.total_anomalies > 0 %}card-risk-high{% endif %}">
+      <p class="card-label">權限異常</p>
+      <p class="card-value">{{ s.total_anomalies }}</p>
+      <p class="card-note">該收沒收 / 孤兒帳號</p>
+    </div>
+  </div>
+
+  {% if s.warnings %}
+    <div class="notice notice-warning" role="alert">
+      <strong>資料完整性提醒</strong>
+      <ul>{% for w in s.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+    </div>
+  {% endif %}
+
+  {# 主矩陣：人員 × 權限 #}
+  <h2>人員權限矩陣</h2>
+  <div class="result-table" role="region" aria-label="人員權限矩陣" tabindex="0">
+    <table class="data-table">
+      <caption class="sr-only">每列一位在職人員，每個權限群組一欄，✓ 表示具有該權限</caption>
+      <thead>
+        <tr>
+          <th scope="col">工號</th>
+          <th scope="col">姓名</th>
+          <th scope="col">信箱</th>
+          <th scope="col">部門</th>
+          <th scope="col">課別</th>
+          <th scope="col">職稱</th>
+          <th scope="col">密碼到期日</th>
+          <th scope="col">帳號到期日</th>
+          {% for name in s.entitlement_names %}
+            <th scope="col" class="perm-col{% if loop.first %} perm-first{% endif %}">{{ name }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in review.people %}
+          {% set a = p.account %}
+          {% set attr = a.attributes or {} %}
+          <tr>
+            <td class="mono">{{ attr.get('employeeID') or a.identifier }}</td>
+            <td>{{ a.display_name }}</td>
+            <td class="mono">{{ a.email }}</td>
+            <td>{{ attr.get('department', '') }}</td>
+            <td>{{ attr.get('division', '') }}</td>
+            <td>{{ attr.get('title', '') }}</td>
+            <td>{{ attr.get('pwd_expires', '') }}</td>
+            <td>{{ attr.get('account_expires', '') }}</td>
+            {% for name in s.entitlement_names %}
+              <td class="perm-col{% if loop.first %} perm-first{% endif %}">
+                {% if p.access[name] %}
+                  <span class="access-yes" title="具有 {{ name }}"><span aria-hidden="true">✓</span><span class="sr-only">有</span></span>
+                {% else %}
+                  <span class="access-no" aria-hidden="true">–</span><span class="sr-only">無</span>
+                {% endif %}
+              </td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# 異常區：權限群組成員不在已啟用主檔（停用未回收 / 孤兒） #}
+  <h2>權限異常（{{ s.total_anomalies }}）</h2>
+  {% if review.anomalies %}
+    <p class="lead">這些帳號仍在權限群組中，但不在 AD 已啟用名冊內 —— 屬「該收沒收」的稽核重點。</p>
+    <table class="data-table">
+      <caption class="sr-only">權限異常清單</caption>
+      <thead>
+        <tr>
+          <th scope="col">權限群組</th>
+          <th scope="col">帳號</th>
+          <th scope="col">名稱</th>
+          <th scope="col">異常類型</th>
+          <th scope="col">說明</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for x in review.anomalies %}
+        <tr class="{% if x.kind.value == 'disabled' %}risk-row-high{% endif %}">
+          <td>{{ x.entitlement }}</td>
+          <td class="mono">{{ x.identifier }}</td>
+          <td>{{ x.display_name }}</td>
+          <td>
+            {% if x.kind.value == 'disabled' %}
+              <span class="risk-badge risk-high"><span aria-hidden="true">■</span> 停用未回收</span>
+            {% else %}
+              <span class="risk-badge risk-medium"><span aria-hidden="true">◆</span> 孤兒帳號</span>
+            {% endif %}
+          </td>
+          <td class="reason-cell">{{ x.detail }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted"><span aria-hidden="true">✓</span> 沒有發現權限異常。所有權限群組成員都對應到已啟用的在職人員。</p>
+  {% endif %}
+{% endif %}
+{% endblock %}

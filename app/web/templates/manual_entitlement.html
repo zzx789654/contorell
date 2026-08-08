@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% set active_nav = 'review' %}
+{% block title %}手動新增權限名單 — contorell{% endblock %}
+
+{% block content %}
+<p class="breadcrumb"><a href="/review">權限檢視</a> ／ 手動新增權限名單</p>
+
+<h1>手動新增權限名單（KEY-IN）</h1>
+<p class="lead">
+  貼上一組帳號（工號或登入帳號），建立一個權限群組。每個帳號是否仍為在職有效，
+  會在權限檢視中對照「AD 已啟用主檔」自動判定 —— 不在主檔內即標為異常。
+</p>
+
+<form method="post" action="/review/manual" class="config-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+
+  <div class="form-row">
+    <label for="name">權限名稱</label>
+    <input type="text" id="name" name="name" required placeholder="例如：VPN、LINE、機房門禁"
+           aria-describedby="name-hint">
+    <p id="name-hint" class="field-hint">會成為權限檢視矩陣的一個欄位。</p>
+  </div>
+
+  <div class="form-row">
+    <label for="account_ids">帳號清單</label>
+    <textarea id="account_ids" name="account_ids" rows="10"
+              placeholder="每行一個，或以逗號分隔&#10;0001&#10;0002&#10;0003"
+              aria-describedby="ids-hint"></textarea>
+    <p id="ids-hint" class="field-hint">
+      支援換行、逗號或空白分隔；重複的會自動去除。大小寫不影響比對。
+    </p>
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">建立權限名單</button>
+    <a href="/review" class="btn">取消</a>
+  </div>
+</form>
+{% endblock %}

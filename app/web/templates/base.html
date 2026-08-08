@@ -19,7 +19,8 @@
         <span aria-hidden="true">⇄</span> contorell
       </a>
       <ul class="nav-list">
-        <li><a href="/" {% if active_nav == 'compare' %}aria-current="page"{% endif %}>比對</a></li>
+        <li><a href="/review" {% if active_nav == 'review' %}aria-current="page"{% endif %}>權限檢視</a></li>
+        <li><a href="/" {% if active_nav == 'compare' %}aria-current="page"{% endif %}>兩來源比對</a></li>
         <li><a href="/sources" {% if active_nav == 'sources' %}aria-current="page"{% endif %}>資料來源</a></li>
         <li><a href="/audit" {% if active_nav == 'audit' %}aria-current="page"{% endif %}>稽核軌跡</a></li>
       </ul>

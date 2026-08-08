@@ -922,3 +922,27 @@ textarea:focus { border-color: var(--primary); }
   .page-header { flex-direction: column; }
   .form-actions { flex-direction: column; align-items: stretch; }
 }
+
+/* --- 權限矩陣（Round 8） --- */
+.access-yes {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem; height: 1.6rem;
+  color: var(--ok-text);
+  background: var(--ok-bg);
+  border-radius: var(--radius-pill);
+  font-weight: 700;
+}
+.access-no { color: var(--text-muted); font-size: 1.1rem; }
+
+/* 權限欄置中；第一個權限欄加左界線，把「人是誰」與「有什麼權限」分開 */
+.data-table th.perm-col,
+.data-table td.perm-col { text-align: center; white-space: nowrap; }
+.data-table th.perm-first,
+.data-table td.perm-first { border-left: 2px solid var(--border-strong); }
+.data-table th.perm-col { color: var(--primary); }
+
+/* 註記輸入框在分頁佔滿欄寬，較好填寫 */
+.annotation-cell .inline-form { width: 100%; flex-wrap: nowrap; }
+.annotation-cell .inline-form input[type="text"] { flex: 1 1 auto; min-width: 0; }
