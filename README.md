@@ -33,224 +33,158 @@
 
 ---
 
-## 快速開始（自動化，兩個指令）
+## 選擇部署方式（先看這個）
 
-專案內附一鍵安裝與部署腳本，把「複製 `.env` → 產生高熵金鑰 → 檢查前置條件 →
-建置 → 部署 → 健康檢查 → 煙霧測試 → 失敗回滾」這串每個人都要做、又最容易做錯的步驟自動化。
+兩種方式**功能完全相同**（同一份程式碼），差別只在「怎麼把服務跑起來、資料放哪」。
+挑一個，往下看它**自己那一節**即可，不必兩節交叉讀。
 
-```bash
-scripts/install.sh      # ① 安裝：產生 .env 與所有金鑰、檢查 Docker/Python
-scripts/deploy.sh       # ② 部署：建置 → 起服務 → 健康檢查 → 煙霧測試（含模擬 AD）
-```
+| | 🐳 **Docker** | 🖥️ **本機原生（Ubuntu）** |
+|---|---|---|
+| 適合 | 快速試用；內含模擬 AD 測試環境 | 正式跑在一台 Ubuntu 主機、不想裝 Docker |
+| 需要 | Docker Engine + Compose v2 | Python 3.12+（沒有就裝 `uv`，腳本會自帶） |
+| 資料庫 | 容器內 PostgreSQL | **SQLite 單檔** 或 本機 PostgreSQL |
+| 常駐方式 | `docker compose` | **systemd 服務**（開機自啟、崩潰重啟） |
+| 往下看 | [**方式一：Docker**](#方式一docker) | [**方式二：本機原生**](#方式二本機原生ubuntu) |
 
-完成後開啟 <http://localhost:8000>（預設管理員帳號 `admin`，密碼由 `install.sh` 隨機產生於 `.env`）。
-
-> 也可用 `make install && make deploy`——`Makefile` 只是這些腳本的薄封裝，`make help` 看全部指令。
-
-環境需求：**Docker Engine + Compose v2**（Docker 模式）或 **Python 3.12+**（本機模式）。
-腳本會自行偵測並在缺少時給出安裝提示。詳細用法見下方
-[「自動化安裝與部署」](#自動化安裝與部署)。
-
-> **不想用 Docker？** 可直接部署在 Ubuntu 上（systemd 服務）：
-> `scripts/install.sh --mode local && sudo scripts/deploy-native.sh --sqlite`。
-> 見[「在 Ubuntu 上原生部署（不使用 Docker）」](#在-ubuntu-上原生部署不使用-docker)。
-
-### 執行測試
-
-`scripts/install.sh` 已把 `pytest` 等所有相依裝進專案的 `.venv`，測試最簡單的跑法是用
-`make`（會自動使用 `.venv`，不必手動 activate）：
-
-```bash
-make test          # 執行完整測試套件（含覆蓋率）
-```
-
-或先啟用 `.venv` 再直接下 `pytest`：
-
-```bash
-source .venv/bin/activate                         # 啟用 install.sh 建好的環境
-pytest tests/ -v                                  # 全部測試
-pytest tests/ --cov=app --cov-report=term-missing # 含覆蓋率
-pytest tests/ -m "not slow"                       # 跳過效能測試
-```
-
-> 出現 `ModuleNotFoundError`（模組沒下載）？多半是**沒有用 `.venv`**——
-> 用 `make test`，或先 `source .venv/bin/activate` 再跑。
-> 若當初是用 `--no-deps` 安裝或 `.venv` 不存在，補跑一次 `scripts/install.sh --mode local` 即可裝好。
+> 兩種方式都會用到設定檔 `.env`，開始前先讀一次下面這節。
 
 ---
 
-## 需要編輯的設定檔（檔案路徑）
+## 設定檔 `.env`（兩種方式共用）
+
+**日常只需要編輯一個檔案：專案根目錄的 `.env`。** 所有連線資訊與金鑰都集中在這。
 
 > **🔎 剛 clone 下來找不到 `.env`？這是正常的。**
-> `.env` 內含金鑰與密碼，**刻意不進版控**（已列在 `.gitignore`），所以 git clone 下來只會有範本 `.env.example`。
-> **先在專案根目錄執行 `scripts/install.sh`**，它會從範本自動建立 `.env` 並填好金鑰——**跑完 `.env` 才會出現**，接著才能編輯它。
+> `.env` 內含金鑰與密碼，**刻意不進版控**（列在 `.gitignore`），所以 clone 下來只有範本 `.env.example`。
+> **執行 `scripts/install.sh` 後 `.env` 才會出現**（從範本自動建立並填好金鑰），接著才能編輯它。
 
-**日常使用只需要編輯一個檔案：專案根目錄的 `.env`。** 所有連線資訊與金鑰都集中在這裡；其餘檔案由腳本自動產生，或屬進階調整。
+| 檔案路徑 | 版控狀態 | 需要編輯嗎 |
+|---|---|---|
+| **`./.env`** | 🚫 不進版控（`install.sh` 後才產生） | ✅ **要**——你唯一要編輯的設定檔 |
+| `./.env.example` | ✅ clone 就有 | ❌ 唯讀範本，勿直接改 |
+| `./docker-compose.yml` | ✅ clone 就有 | ⚙️ 通常不用（對外綁定改 `.env` 的 `APP_BIND` 即可） |
 
-| 檔案路徑 | 版控狀態 | 需要編輯嗎 | 內容 / 何時才動 |
-|---|---|---|---|
-| **`./.env`** | 🚫 **不進版控**（跑 `install.sh` 後才產生） | ✅ **要** | 你唯一需要編輯的設定檔——AD/LDAP 連線、資料庫、對外綁定、管理員退路帳號、金鑰 |
-| `./.env.example` | ✅ 在版控裡（clone 就有） | ❌ 唯讀範本，**勿直接改** | `.env` 的樣板;只有要新增設定項時才動它 |
-| `./docker-compose.yml` | ✅ 在版控裡 | ⚙️ 通常不用 | 服務組成與埠對映。對外綁定已可由 `.env` 的 `APP_BIND` 控制，不必改此檔 |
-| `./.github/workflows/ci.yml` | ✅ 在版控裡 | ⚙️ 只在調 CI 時 | CI 管線(lint／測試／資安掃描 gate) |
-
-> 快速建立 `.env`：`scripts/install.sh`（完整）或 `scripts/install.sh --no-deps`（只產生設定檔、先不裝套件）。
-
-### 編輯 `.env`（專案根目錄）
+編輯（`install.sh` 已產生金鑰，通常只需視環境補這幾類）：
 
 ```bash
-$EDITOR .env        # 或 vim .env / nano .env / code .env
+$EDITOR .env        # 或 vim / nano / code .env
 ```
-
-`.env` 就在專案根目錄。`install.sh` 已自動產生金鑰與密碼,你通常只需視環境補這幾類欄位:
 
 | 欄位 | 什麼時候改 |
 |---|---|
-| `LDAP_HOST`／`LDAP_BASE_DN`／`LDAP_BIND_DN`／`LDAP_BIND_PASSWORD` | **接真實 AD 時必填**(唯讀服務帳號,非 Domain Admin) |
+| `LDAP_HOST`／`LDAP_BASE_DN`／`LDAP_BIND_DN`／`LDAP_BIND_PASSWORD` | **接真實 AD 時必填**（唯讀服務帳號，非 Domain Admin） |
 | `LDAP_VERIFY_CERT`／`LDAP_CA_CERT_FILE` | 正式環境務必 `true` 並提供企業 CA 憑證路徑 |
-| `APP_BIND` | 要讓其他網段連進來時設 `0.0.0.0`(見[下方](#讓其他網段的-ip-連線到網頁)) |
-| `APP_ENV` | 上正式環境時設 `production`(啟用 HSTS／secure cookie／關閉 API 文件) |
-| `BOOTSTRAP_ADMIN_USERNAME` | 想改本地管理員退路帳號名稱 |
-| `SECRET_KEY`／`POSTGRES_PASSWORD`／`BOOTSTRAP_ADMIN_PASSWORD` | **通常不用改**(已自動產生;要重產用 `install.sh --force`) |
+| `APP_BIND` | 要讓其他網段連進來時設 `0.0.0.0`（見[跨網段連線](#讓其他網段的-ip-連線到網頁)） |
+| `APP_ENV` | 上正式環境時設 `production`（啟用 HSTS／secure cookie／關閉 API 文件） |
+| `SECRET_KEY`／`POSTGRES_PASSWORD`／`BOOTSTRAP_ADMIN_PASSWORD` | **通常不用改**（已自動產生；要重產用 `install.sh --force`） |
 
-各欄位的完整說明見 [`.env.example`](.env.example) 內的註解,以及下方[① 安裝](#-安裝scriptsinstallsh)的變數表。
-
-> ⚠️ `.env` 內含密鑰,已列入 `.gitignore` 且權限為 `600`,**絕不可提交進版控**。
+> ⚠️ `.env` 內含密鑰、權限為 `600`、已列入 `.gitignore`，**絕不可提交進版控**。完整欄位說明見 [`.env.example`](.env.example) 內註解。
 
 ---
 
-## 自動化安裝與部署
+# 方式一：Docker
 
-四個腳本各司其職，全部可獨立執行，也可用 `Makefile` 捷徑呼叫：
+> 環境需求：**Docker Engine + Compose v2**。全程三個指令：安裝 → 部署 → 測試。
 
-| 腳本 | 對應 `make` | 做什麼 |
-|---|---|---|
-| [`scripts/install.sh`](scripts/install.sh) | `make install` | 產生 `.env`、以 `secrets` 模組產生高熵金鑰、同步 `DATABASE_URL`、**自動安裝所有套件** |
-| [`scripts/deploy.sh`](scripts/deploy.sh) | `make deploy` | **Docker** 部署：前置驗證 → 建置 → 啟動 → 健康檢查 → 煙霧測試，**失敗自動回滾** |
-| [`scripts/deploy-native.sh`](scripts/deploy-native.sh) | `make deploy-native` | **原生**部署（不用 Docker）：venv + 資料庫 + systemd 服務（見[專節](#在-ubuntu-上原生部署不使用-docker)） |
-| [`scripts/smoke-test.sh`](scripts/smoke-test.sh) | `make smoke` | 部署後快速確認服務可對外服務（可指向 staging/prod URL） |
-| [`scripts/lib.sh`](scripts/lib.sh) | — | 共用函式庫，不單獨執行 |
-
-### ① 安裝：`scripts/install.sh`
+## 1. 安裝（Docker）
 
 ```bash
-scripts/install.sh                  # Docker 模式（預設，build 映像＝把所有套件裝進映像）
-scripts/install.sh --mode local     # 本機模式（建 .venv 並自動安裝所有相依套件）
-scripts/install.sh --no-deps        # 只產生 .env，跳過套件安裝
-scripts/install.sh --admin-user ops # 指定本地管理員帳號名稱
-scripts/install.sh --force          # 重新產生所有金鑰（先自動備份舊 .env）
+scripts/install.sh          # 產生 .env 與金鑰、build 映像（把所有套件裝進映像），並建 .venv 供本機測試
 ```
 
-- **自動安裝所有套件**：
-  - **Docker 模式** → 執行 `docker compose build`，把 `fastapi`、`uvicorn`、`ldap3`… 等所有相依裝進映像（首次較久）。
-  - **本機模式** → 建立 `.venv`（優先用 `uv`，沒有就用 Python 內建 `venv`），並 `pip install -e ".[dev]"` 裝好含測試工具的完整相依。
-  - 不想現在裝、只想產生設定檔 → 加 `--no-deps`。
-- **冪等**：已存在的 `.env` 預設不覆寫，只補上仍是 `CHANGE_ME` 的欄位；`.venv` 已存在則沿用不重建。
-- **安全**：`SECRET_KEY`／各密碼在本機產生後直接寫入 `.env`，**不印到終端機**；`.env` 權限收緊為 `600`。
-- 無法自動產生的欄位（真實 AD 的 `LDAP_HOST`／`LDAP_BIND_DN`／`LDAP_BIND_PASSWORD`）會逐一提示你手動填。
+- **冪等**：已存在的 `.env` 不覆寫，只補仍是 `CHANGE_ME` 的欄位。
+- **金鑰安全**：`SECRET_KEY`／各密碼在本機產生後直接寫入 `.env`，**不印到終端機**。
+- 其他旗標：`--no-deps`（只產生 `.env`、不裝套件）、`--force`（重產所有金鑰，先備份舊 `.env`）、`--admin-user NAME`。
+- 裝完若要接真實 AD，依上面[設定檔 `.env`](#設定檔-env兩種方式共用)補 `LDAP_*` 欄位。
 
-> ⚠️ `.env` 已列入 `.gitignore`，內含密鑰，**絕不可提交進版控**。
-
-自動產生後仍需你視環境確認的關鍵變數：
-
-| 變數 | 說明 |
-|---|---|
-| `SECRET_KEY` | session 簽章與憑證加密的主金鑰（**至少 32 字元**，已自動產生） |
-| `DATABASE_URL` | PostgreSQL 連線字串（已依 `POSTGRES_*` 自動同步） |
-| `LDAP_HOST` / `LDAP_BASE_DN` | AD 網域控制站與 Base DN（**接真實 AD 時必填**） |
-| `LDAP_BIND_DN` / `LDAP_BIND_PASSWORD` | **唯讀**服務帳號（非 Domain Admin） |
-| `BOOTSTRAP_ADMIN_PASSWORD` | 本地管理員密碼（AD 故障時的退路，已自動產生） |
-
-### ② 部署：`scripts/deploy.sh`
+## 2. 部署（Docker）
 
 ```bash
-scripts/deploy.sh                   # 開發部署（db + 模擬 AD DC + app）
+scripts/deploy.sh                               # 開發部署（db + 內建模擬 AD DC + app）
 scripts/deploy.sh --env production --no-samba   # 正式部署（接真實 AD，執行安全關卡）
-scripts/deploy.sh --logs            # 只追蹤 app 即時 log（不部署）
-scripts/deploy.sh --down            # 停止並移除容器（保留資料卷）
-scripts/deploy.sh --rollback        # 回滾：停掉目前這批容器
 ```
 
-部署流程（對應 CD 五步）與各關卡：
+部署流程（五步，任一步失敗自動回滾、保留資料）：
 
-1. **前置驗證** — `.env` 存在；`SECRET_KEY`／`POSTGRES_PASSWORD`／`BOOTSTRAP_ADMIN_PASSWORD`
-   不得仍是佔位符；`SECRET_KEY` 長度 ≥ 32。任一不符即中止並提示補救。
-2. **正式環境安全關卡**（`--env production` 時強制，對齊下方[上線檢查清單](#正式環境部署檢查清單)）：
-   `LDAP_VERIFY_CERT=true`、**不得啟動內建 Samba**（須 `--no-samba` 接真實 AD）、管理員密碼 ≥ 16 字元。
-   **未過關即拒絕部署，不提供略過選項。**
-3. **建置並啟動** — `docker compose up -d --build`；失敗時自動印出最近 log。
-4. **健康檢查** — 等待 app 容器 `healthy`（沿用 Dockerfile／compose 的 `HEALTHCHECK`）；逾時即回滾。
-5. **煙霧測試** — 呼叫 `smoke-test.sh` 驗證 `/login`、根路徑授權行為與安全標頭；
-   **失敗會自動 `docker compose down` 回滾**，避免帶病對外服務（資料卷保留）。
+1. **前置驗證** — `.env` 存在；`SECRET_KEY`／`POSTGRES_PASSWORD`／`BOOTSTRAP_ADMIN_PASSWORD` 不得是佔位符；`SECRET_KEY` ≥ 32 字元。
+2. **正式環境安全關卡**（`--env production`）— 強制 `LDAP_VERIFY_CERT=true`、須 `--no-samba` 接真實 AD、管理員密碼 ≥ 16；**未過即拒絕**。
+3. **建置並啟動** — `docker compose up -d --build`。
+4. **健康檢查** — 等 app 容器 `healthy`，逾時即回滾。
+5. **煙霧測試** — 驗證 `/login`、授權導向與安全標頭；失敗自動 `docker compose down` 回滾。
 
-### ③ 煙霧測試：`scripts/smoke-test.sh`
+完成後開啟 <http://localhost:8000>（預設管理員帳號 `admin`，密碼在 `.env`）。
 
-部署腳本會自動呼叫；也可獨立對任一環境執行：
+常用管理：
+
+| 動作 | 指令 |
+|---|---|
+| 追蹤 app 即時 log | `scripts/deploy.sh --logs` |
+| 停止（保留資料卷） | `scripts/deploy.sh --down` |
+| 回滾（停掉這批容器） | `scripts/deploy.sh --rollback` |
+| 連資料一併清除 | `docker compose down -v` |
+
+## 3. 測試（Docker）
+
+`install.sh` 已把 `pytest` 等裝進專案的 `.venv`，直接用 `make`（自動使用 `.venv`）：
 
 ```bash
-scripts/smoke-test.sh                                   # 預設 http://localhost:8000
-scripts/smoke-test.sh --url https://staging.example.com # 指向 staging/prod
-scripts/smoke-test.sh --retries 20 --interval 3         # 調整等待就緒的次數/間隔
+make test          # 完整測試套件（含覆蓋率）
 ```
 
-### 回滾與資料安全
-
-- 本專案為**單機 Docker Compose 部署**，回滾＝把壞掉的這批容器停掉，讓服務回到乾淨的「未部署」狀態。
-- `--down` 與 `--rollback` **只停容器、保留資料卷**（`pgdata` 等）；要連資料一併清除才需 `docker compose down -v`。
-- 正式環境的映像版本控管，建議由 CI（`.github/workflows/ci.yml` 的 `build` job 已產出 artifact）搭配 registry tag 管理。
-
-### 本機開發模式（不進 Docker）
-
-若要直接在本機跑（需自備 PostgreSQL）：
-
-```bash
-scripts/install.sh --mode local     # 產生 .env、指向 localhost，並自動建 .venv 裝好所有套件
-source .venv/bin/activate
-uvicorn app.main:app --reload
-```
-
-`install.sh --mode local` 已幫你把 `.venv` 與所有相依（含 `pytest` 等 dev 工具）裝好，不需再手動 `pip install`。
+> 也可先 `source .venv/bin/activate` 再 `pytest tests/ -v`。
+> 出現 `ModuleNotFoundError`？多半是沒用 `.venv`——改用 `make test`，或補跑 `scripts/install.sh`。
 
 ---
 
-## 在 Ubuntu 上原生部署（不使用 Docker）
+# 方式二：本機原生（Ubuntu）
 
-不想用 Docker、想直接把服務跑在 Ubuntu 主機上？用 [`scripts/deploy-native.sh`](scripts/deploy-native.sh)。
-它會裝系統相依、建 `.venv`、準備資料庫，並把服務註冊成 **systemd 常駐服務**（開機自啟、崩潰自動重啟）。
+> 環境需求：**Python 3.12+**（沒有就裝 `uv`，腳本會自帶）。**不需要 Docker**。
+> 服務會註冊成 **systemd 常駐**（開機自啟、崩潰自動重啟、非 root、附沙箱強化）。
+>
+> 之所以能輕鬆脫離 Docker：本應用**執行期不寫檔**（Excel 匯出走記憶體串流）、
+> 資料模型**不依賴 PostgreSQL 專屬型別**，因此原生部署只需要「venv + 資料庫 + systemd」。
 
-> 之所以能輕鬆脫離 Docker：本應用**執行期不寫檔**（Excel 匯出走記憶體串流），
-> 資料模型**不依賴 PostgreSQL 專屬型別**，因此原生部署只需要
-> 「一個 Python venv + 一個資料庫 + 一個 systemd 服務」。
-
-### 最簡：SQLite（零額外服務，一行搞定）
-
-適合單機、少量並發的稽核用途——不必安裝或管理資料庫：
+## 1. 安裝（本機原生）
 
 ```bash
-scripts/install.sh --mode local        # 建 .venv、產生 .env 與金鑰
-sudo scripts/deploy-native.sh --sqlite # 用檔案型 SQLite，裝好 systemd 服務並啟動
+scripts/install.sh --mode local     # 建 .venv、自動安裝所有套件（含 uvicorn/pytest）、產生 .env 與金鑰
 ```
 
-完成後開啟 <http://127.0.0.1:8000>。資料存在 `data/contorell.db`。
+- 會在專案下建立 `.venv` 並裝齊相依；`.env` 的 `DATABASE_URL` 預設指向本機。
+- 裝完若要接真實 AD，依上面[設定檔 `.env`](#設定檔-env兩種方式共用)補 `LDAP_*` 欄位。
 
-### 正式：PostgreSQL（自動安裝並設定）
+## 2. 部署（本機原生，systemd）
+
+資料庫二選一：
+
+**（最簡）SQLite — 零額外服務：**
 
 ```bash
-scripts/install.sh --mode local        # 建 .venv、產生 .env（DATABASE_URL 指向本機）
-sudo scripts/deploy-native.sh --with-db # apt 裝 PostgreSQL，用 .env 帳密建 role/db，再啟動服務
+sudo scripts/deploy-native.sh --sqlite      # 用檔案型 SQLite，裝好 systemd 服務並啟動
 ```
 
-> 已經有自架的資料庫？在 `.env` 把 `DATABASE_URL` 指過去，然後只跑 `sudo scripts/deploy-native.sh`（不加 `--with-db`）。
+**（正式）PostgreSQL — 自動安裝並設定：**
 
-### 部署腳本做了什麼（5 步）
+```bash
+sudo scripts/deploy-native.sh --with-db     # apt 裝 PostgreSQL、用 .env 帳密建 role/db、再啟動
+```
 
-1. **系統相依** — `apt-get install python3 python3-venv python3-dev`（`--with-db` 時加 `postgresql`）。
-2. **Python venv** — 沒有 `.venv` 就呼叫 `install.sh --mode local` 建好並裝齊套件（含 `uvicorn`）。
-3. **資料庫** — `--sqlite` 用檔案；`--with-db` 建 PostgreSQL role/db；否則沿用 `.env` 的 `DATABASE_URL`。資料表由應用啟動時自動建立。
-4. **systemd 服務** — 產生 `/etc/systemd/system/contorell.service`（以非 root 使用者執行、附基本沙箱強化），`enable --now`。
-5. **健康檢查 + 煙霧測試** — 等 `/login` 回應，失敗會印出 `journalctl` 最近 log。
+> 已有自架資料庫？在 `.env` 把 `DATABASE_URL` 指過去，然後只跑 `sudo scripts/deploy-native.sh`（不加旗標）。
 
-### 管理服務
+部署腳本做的事（五步）：**① apt 系統相依 → ② 建 `.venv` 裝套件 → ③ 準備資料庫（資料表啟動時自動建立）→ ④ 產生 `/etc/systemd/system/contorell.service` 並 `enable --now` → ⑤ 健康檢查 + 煙霧測試（失敗印出 `journalctl` 最近 log）**。
+
+完成後開啟 <http://127.0.0.1:8000>（預設管理員帳號 `admin`，密碼在 `.env`）。
+
+可用旗標：
+
+| 參數 | 用途 |
+|---|---|
+| `--sqlite` | 用檔案型 SQLite（不裝資料庫服務） |
+| `--with-db` | 在本機 apt 安裝並設定 PostgreSQL |
+| `--port 8080` | 指定監聽埠（預設 8000） |
+| `--service-user contorell` | 用專屬系統帳號跑服務（預設用執行者帳號） |
+
+管理服務：
 
 | 動作 | 指令 |
 |---|---|
@@ -260,79 +194,48 @@ sudo scripts/deploy-native.sh --with-db # apt 裝 PostgreSQL，用 .env 帳密�
 | 更新程式後重部署 | `git pull && sudo scripts/deploy-native.sh` |
 | 移除服務 | `scripts/deploy-native.sh --uninstall`（保留 venv／.env／資料庫） |
 
-也可用 `make`：`make deploy-native`、`make deploy-native-sqlite`、`make native-status`、`make native-logs`。
+> `make` 捷徑：`make deploy-native`、`make deploy-native-sqlite`、`make native-status`、`make native-logs`。
 
-### 選項
+## 3. 測試（本機原生）
 
-| 參數 | 用途 |
-|---|---|
-| `--sqlite` | 用檔案型 SQLite（不裝資料庫服務） |
-| `--with-db` | 在本機 apt 安裝並設定 PostgreSQL |
-| `--port 8080` | 指定監聽埠（預設 8000） |
-| `--service-user contorell` | 用專屬系統帳號跑服務（最小權限；預設用執行者帳號） |
+與 Docker 相同——`install.sh --mode local` 已把測試工具裝進 `.venv`：
 
-> ⚠️ **對外連線與安全**：服務預設監聽 `.env` 的 `APP_BIND`（預設 `127.0.0.1`，只有本機）。
-> 要讓其他網段連進來，設 `APP_BIND=0.0.0.0` 後重跑本腳本並放行防火牆（見[下一節](#讓其他網段的-ip-連線到網頁)）。
-> 對外是明文 HTTP，正式環境請置於 HTTPS 反向代理之後、`APP_ENV=production`。
+```bash
+make test          # 完整測試套件（含覆蓋率）
+```
+
+> 也可先 `source .venv/bin/activate` 再 `pytest tests/ -v`。
 
 ---
 
 ## 讓其他網段的 IP 連線到網頁
 
-**預設只有執行主機自己（`127.0.0.1`）連得到**——這是刻意的安全預設。要讓「同網段或其他網段的電腦」用瀏覽器連進來，依你的執行方式二選一：
+**預設只有執行主機自己（`127.0.0.1`）連得到**——這是刻意的安全預設。要讓別的電腦用瀏覽器連進來：
 
-### Docker 模式（改綁定位址，最簡單）
+**Docker：** 在 `.env` 設 `APP_BIND=0.0.0.0`，重跑 `scripts/deploy.sh`。
+**本機原生：** 在 `.env` 設 `APP_BIND=0.0.0.0`，重跑 `sudo scripts/deploy-native.sh`（或直接 `uvicorn app.main:app --host 0.0.0.0 --port 8000`）。
 
-1. 在 `.env` 設定對外綁定位址為 `0.0.0.0`（監聽所有網卡）：
+然後其他電腦以「**執行主機的 IP**」連線，例如 `http://192.168.1.50:8000`。
 
-   ```bash
-   APP_BIND=0.0.0.0
-   ```
-
-2. 重新部署讓設定生效：
-
-   ```bash
-   scripts/deploy.sh          # 會以新的 APP_BIND 重新綁定 8000 埠
-   ```
-
-3. 其他電腦以「**執行主機的 IP**」連線，例如主機是 `192.168.1.50`：
-
-   ```
-   http://192.168.1.50:8000
-   ```
-
-> 原理：`docker-compose.yml` 的埠對映為 `${APP_BIND:-127.0.0.1}:8000:8000`。預設綁 `127.0.0.1` 只有本機能連；改成 `0.0.0.0` 後才會對外。**只有 `app` 對外，資料庫與 Samba 仍鎖在 `127.0.0.1`**，不會意外曝露。
-
-### 本機模式（uvicorn 直接跑）
-
-啟動時把監聽位址設為 `0.0.0.0`：
+還要打通防火牆（否則封包到不了）：
 
 ```bash
-source .venv/bin/activate
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Ubuntu/Debian（ufw）— 建議只放行特定網段
+sudo ufw allow from 192.168.1.0/24 to any port 8000 proto tcp
+# RHEL/CentOS（firewalld）
+sudo firewall-cmd --add-port=8000/tcp --permanent && sudo firewall-cmd --reload
+# Windows Server
+New-NetFirewallRule -DisplayName "contorell 8000" -Direction Inbound -LocalPort 8000 -Protocol TCP -Action Allow
 ```
 
-### 還要打通這兩關
-
-1. **主機防火牆放行 8000 埠**（否則封包到不了）：
-
-   ```bash
-   # Ubuntu/Debian（ufw）
-   sudo ufw allow from 192.168.1.0/24 to any port 8000 proto tcp   # 只放行特定網段（建議）
-   # RHEL/CentOS（firewalld）
-   sudo firewall-cmd --add-port=8000/tcp --permanent && sudo firewall-cmd --reload
-   # Windows Server
-   New-NetFirewallRule -DisplayName "contorell 8000" -Direction Inbound -LocalPort 8000 -Protocol TCP -Action Allow
-   ```
-
-2. **跨網段時確認路由/NAT 可達**：不同網段之間要有路由或防火牆規則允許到達主機的 8000 埠（這屬於你的網路環境，非本系統設定）。查主機 IP：`ip addr`（Linux）／`ipconfig`（Windows）。
+查主機 IP：`ip addr`（Linux）／`ipconfig`（Windows）。跨網段時另需路由/NAT 可達（屬你的網路環境）。
 
 ### ⚠️ 安全提醒（務必看）
 
-- 上述方式對外的是**明文 HTTP**，只適合**受信任的內網測試**。本系統集中儲存全公司帳號權限資料，是高價值目標。
-- **正式環境不要直接對外暴露 8000**：請在前面架 **HTTPS 反向代理**（nginx／Caddy／Traefik），對外只開 443，`APP_BIND` 維持 `127.0.0.1`（只讓反向代理連）。
-- `APP_ENV=production` 會啟用 **secure cookie（僅限 HTTPS）**——若在正式模式下走明文 HTTP，登入 cookie 會無法送出而**登不進去**。所以要嘛用 HTTPS 反向代理、要嘛內網測試時維持 `development`。
-- 防火牆盡量**只放行需要的來源網段**（如上例的 `192.168.1.0/24`），不要對整個網際網路開放。
+- 對外的是**明文 HTTP**，只適合**受信任的內網測試**。本系統集中儲存全公司帳號權限資料，是高價值目標。
+- **正式環境不要直接對外暴露 8000**：前面架 **HTTPS 反向代理**（nginx／Caddy／Traefik），對外只開 443，`APP_BIND` 維持 `127.0.0.1`。
+- `APP_ENV=production` 會啟用 **secure cookie（僅限 HTTPS）**——在正式模式下走明文 HTTP 會**登不進去**。內網測試請維持 `development`。
+- 防火牆盡量**只放行需要的來源網段**，不要對整個網際網路開放。
 
 ---
 
@@ -428,5 +331,5 @@ scripts/               # 自動化安裝與部署
 ├── deploy-native.sh   # 原生部署（不用 Docker）：venv + 資料庫 + systemd 服務
 ├── smoke-test.sh      # 部署後煙霧測試（可指向 staging/prod）
 └── lib.sh             # 共用函式庫
-Makefile               # 常用指令捷徑（make install / deploy / smoke / test …）
+Makefile               # 常用指令捷徑（make help 看全部）
 ```
