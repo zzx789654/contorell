@@ -70,6 +70,7 @@ def _build_ldap_provider(source: DataSource, config: dict, secret: str) -> LdapP
         port=int(config.get("port", settings.ldap_port)),
         use_ssl=bool(config.get("use_ssl", settings.ldap_use_ssl)),
         use_start_tls=bool(config.get("use_start_tls", False)),
+        allow_plaintext=bool(config.get("allow_plaintext", False)),
         base_dn=config.get("base_dn") or settings.ldap_base_dn,
         bind_dn=config.get("bind_dn") or settings.ldap_bind_dn,
         bind_password=secret or settings.ldap_bind_password,

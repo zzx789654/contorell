@@ -70,6 +70,7 @@ class LdapSourceForm:
     port: int
     use_ssl: bool
     use_start_tls: bool
+    allow_plaintext: bool
     verify_cert: bool
     ca_cert_file: str
 
@@ -96,6 +97,7 @@ class LdapSourceForm:
             "port": self.port,
             "use_ssl": self.use_ssl,
             "use_start_tls": self.use_start_tls,
+            "allow_plaintext": self.allow_plaintext,
             "verify_cert": self.verify_cert,
             "ca_cert_file": self.ca_cert_file,
             "base_dn": self.base_dn,
@@ -158,13 +160,14 @@ def parse_ldap_form(data: dict[str, str], *, is_edit: bool = False) -> LdapSourc
 
     use_ssl = _as_bool(data.get("use_ssl"))
     use_start_tls = _as_bool(data.get("use_start_tls"))
+    allow_plaintext = _as_bool(data.get("allow_plaintext"))
 
-    # NFR-04：明文 bind 一律拒絕。這在 LdapConfig.validate() 也會擋，
-    # 但在表單層先擋能給出更好的錯誤訊息，且不必等到測試連線才發現。
-    if not use_ssl and not use_start_tls:
+    # NFR-04：預設拒絕明文 bind；管理者明確勾選「允許未加密連線」才放行（隔離測試網段用）。
+    # 這在 LdapConfig.validate() 也會擋，但在表單層先擋能給出更好的錯誤訊息。
+    if not use_ssl and not use_start_tls and not allow_plaintext:
         errors["use_ssl"] = (
-            "必須啟用 LDAPS 或 StartTLS。未加密的連線會讓服務帳號的密碼以明文在網路上傳輸，"
-            "本系統不提供這個選項。"
+            "必須啟用 LDAPS 或 StartTLS。未加密的連線會讓服務帳號的密碼以明文在網路上傳輸；"
+            "若確實要用未加密連線，請勾選下方「允許未加密連線（不建議）」。"
         )
     if use_ssl and use_start_tls:
         errors["use_start_tls"] = (
@@ -275,6 +278,7 @@ def parse_ldap_form(data: dict[str, str], *, is_edit: bool = False) -> LdapSourc
         port=port,  # type: ignore[arg-type]
         use_ssl=use_ssl,
         use_start_tls=use_start_tls,
+        allow_plaintext=allow_plaintext,
         verify_cert=verify_cert,
         ca_cert_file=ca_cert_file,
         base_dn=base_dn,

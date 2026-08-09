@@ -119,10 +119,15 @@
           <input type="checkbox" name="use_start_tls" value="1" {% if values.use_start_tls %}checked{% endif %}>
           StartTLS（先連 389 埠再升級為加密）
         </label>
+        <label class="inline-check">
+          <input type="checkbox" name="allow_plaintext" value="1" {% if values.allow_plaintext %}checked{% endif %}>
+          ⚠ 允許未加密連線（明文 389，<strong>不建議</strong>）
+        </label>
       </div>
       <p class="field-hint" id="encryption-help">
-        <strong>兩者擇一，且必須選一個。</strong>
-        本系統不允許未加密連線——那會讓服務帳號的密碼以明文在網路上傳輸。
+        <strong>建議用 LDAPS 或 StartTLS（兩者擇一）。</strong>
+        勾選「允許未加密連線」會讓服務帳號的密碼以<strong>明文</strong>在網路上傳輸，
+        僅適合隔離的測試網段；正式環境請務必使用加密連線。
       </p>
       {{ field_help('LDAPS 和 StartTLS 差在哪？', '', '-H ldaps://… ／ -Z（StartTLS）',
          'TLS 版本由系統自動協商，不需要也不應該寫死：Windows Server 2025 支援 TLS 1.3，2016～2022 為 TLS 1.2。若您的 AD 兩種都開，選 LDAPS 即可。') }}
