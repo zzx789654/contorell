@@ -16,10 +16,12 @@ from app.access_review.engine import AccessReviewResult, Entitlement, build_acce
 from app.config import get_settings
 from app.db.models import (
     DataSource,
+    EntitlementMaintainer,
     EntitlementNote,
     Snapshot,
     SnapshotAccount,
     SourceType,
+    User,
 )
 from app.providers.api_provider import ApiConfig, ApiProvider, AuthType, PaginationType
 from app.providers.api_provider import FieldMapping as ApiFieldMapping
@@ -70,6 +72,7 @@ def _build_ldap_provider(source: DataSource, config: dict, secret: str) -> LdapP
         port=int(config.get("port", settings.ldap_port)),
         use_ssl=bool(config.get("use_ssl", settings.ldap_use_ssl)),
         use_start_tls=bool(config.get("use_start_tls", False)),
+        allow_plaintext=bool(config.get("allow_plaintext", False)),
         base_dn=config.get("base_dn") or settings.ldap_base_dn,
         bind_dn=config.get("bind_dn") or settings.ldap_bind_dn,
         bind_password=secret or settings.ldap_bind_password,
@@ -346,6 +349,43 @@ def create_manual_entitlement(
     )
     store_snapshot(session, source, result, username)
     return source
+
+
+def source_maintainer_ids(session: Session, source_id: int) -> set[int]:
+    """某權限來源的維護人員 user_id 集合。"""
+    return set(
+        session.scalars(
+            select(EntitlementMaintainer.user_id).where(
+                EntitlementMaintainer.source_id == source_id
+            )
+        )
+    )
+
+
+def user_can_maintain(session: Session, source_id: int, user: User) -> bool:
+    """判斷使用者能否維護某權限來源：管理者一律可，或被指派為該來源維護人員。"""
+    if user.is_admin:
+        return True
+    return (
+        session.scalars(
+            select(EntitlementMaintainer)
+            .where(
+                EntitlementMaintainer.source_id == source_id,
+                EntitlementMaintainer.user_id == user.id,
+            )
+            .limit(1)
+        ).first()
+        is not None
+    )
+
+
+def set_source_maintainers(session: Session, source_id: int, user_ids: list[int]) -> None:
+    """設定某權限來源的維護人員（覆蓋式）。"""
+    session.query(EntitlementMaintainer).filter(
+        EntitlementMaintainer.source_id == source_id
+    ).delete()
+    for uid in dict.fromkeys(user_ids):  # 去重、保序
+        session.add(EntitlementMaintainer(source_id=source_id, user_id=uid))
 
 
 def upsert_entitlement_note(

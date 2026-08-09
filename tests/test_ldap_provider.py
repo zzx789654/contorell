@@ -47,13 +47,19 @@ def make_entry(account_name: str, *, uac: int = 512, dn: str | None = None) -> d
 class TestConfigValidation:
     """NFR-04、IR-03：設定驗證拒絕不安全與會導致錯誤的組合。"""
 
-    def test_rejects_plaintext_ldap(self):
-        """NFR-04：明文 389 bind 必須被拒絕，不提供繞過選項。"""
+    def test_rejects_plaintext_ldap_by_default(self):
+        """NFR-04：明文 389 bind 預設被拒絕（未明確勾選允許時）。"""
         with pytest.raises(ConfigurationError) as exc:
             make_config(use_ssl=False, use_start_tls=False, port=389).validate()
 
         assert "未加密" in exc.value.message
         assert "LDAPS" in exc.value.remediation
+
+    def test_accepts_plaintext_when_explicitly_allowed(self):
+        """管理者明確勾選 allow_plaintext 時放行明文連線（隔離測試網段用）。"""
+        make_config(
+            use_ssl=False, use_start_tls=False, port=389, allow_plaintext=True
+        ).validate()  # 不應拋出
 
     def test_accepts_ldaps(self):
         make_config(use_ssl=True, port=636).validate()  # 不應拋出

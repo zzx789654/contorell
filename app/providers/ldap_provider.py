@@ -125,6 +125,10 @@ class LdapConfig:
     extra_attributes: list[str] = field(default_factory=list)
     """額外要抓取的 AD 屬性。經 ldap_queries 的白名單驗證，不接受任意名稱。"""
 
+    allow_plaintext: bool = False
+    """明確允許未加密（明文 389）連線。**預設關閉**——這會讓 bind 密碼以明文傳輸，
+    僅在管理者於介面明確勾選、且清楚風險時才開啟（隔離測試網段用）。"""
+
     def validate(self) -> None:
         """驗證設定，拒絕不安全的組合。
 
@@ -136,13 +140,15 @@ class LdapConfig:
         if not self.base_dn:
             raise ConfigurationError("Base DN 不可為空")
 
-        # NFR-04：禁止明文 bind。這是硬性安全要求，不提供繞過選項。
-        if not self.use_ssl and not self.use_start_tls:
+        # NFR-04：預設禁止明文 bind（帳密會明文傳輸）。
+        # 管理者可於介面明確勾選 allow_plaintext 放行（隔離測試網段用），否則一律拒絕。
+        if not self.use_ssl and not self.use_start_tls and not self.allow_plaintext:
             raise ConfigurationError(
                 "拒絕使用未加密的 LDAP 連線：帳號密碼會以明文在網路上傳輸。",
                 remediation=(
                     "請改用 LDAPS（port 636，use_ssl=True）"
-                    "或在 port 389 上啟用 StartTLS（use_start_tls=True）。"
+                    "或在 port 389 上啟用 StartTLS（use_start_tls=True）；"
+                    "若確實要用未加密連線，請在來源設定明確勾選「允許未加密連線」。"
                 ),
             )
 

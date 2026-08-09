@@ -30,6 +30,31 @@
   </div>
 </div>
 
+{% if user.is_admin %}
+  {# 維護權限指派（Round 10）：管理者設定誰可維護此權限來源的註記 #}
+  <details class="tool-card" {% if maintainer_ids %}open{% endif %}>
+    <summary><strong>維護人員</strong>（可填寫此權限來源的處置註記，不需管理者權限）</summary>
+    <form method="post" action="/review/source/{{ src.id }}/maintainers" style="margin-top:1rem">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+      {% if all_users %}
+        <div class="checkbox-grid">
+          {% for u in all_users %}
+            <label class="inline-check">
+              <input type="checkbox" name="user_ids" value="{{ u.id }}"
+                     {% if u.id in maintainer_ids %}checked{% endif %}>
+              {{ u.display_name or u.username }}
+              <span class="muted">（{{ '管理者' if u.is_admin else '稽核者' }}{{ '・AD' if not u.is_local else '・本地' }}）</span>
+            </label>
+          {% endfor %}
+        </div>
+        <div class="form-actions"><button type="submit" class="btn btn-primary">儲存維護人員</button></div>
+      {% else %}
+        <p class="muted">尚無其他帳號可指派。請先到「帳號管理」新增帳號。</p>
+      {% endif %}
+    </form>
+  </details>
+{% endif %}
+
 {% if detail.rows %}
 <table class="data-table">
   <caption class="sr-only">{{ src.name }} 成員清單與註記</caption>
@@ -56,7 +81,7 @@
         {% endif %}
       </td>
       <td class="annotation-cell">
-        {% if user.is_admin %}
+        {% if can_maintain %}
           {# 自動儲存：輸入後 change 或停止打字 0.8 秒即送出（規格第 3 點）#}
           <div class="inline-form">
             <label class="sr-only" for="note-{{ loop.index }}">{{ r.identifier }} 的註記</label>

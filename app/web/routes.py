@@ -22,6 +22,8 @@ from app.db.models import (
     DataSource,
     Snapshot,
     SourceType,
+    User,
+    UserRole,
 )
 from app.export.excel import build_filename, export_to_csv, export_to_excel
 from app.providers.base import Account, AccountStatus, FetchResult, ProviderError
@@ -32,6 +34,7 @@ from app.providers.ldap_queries import (
     QUERY_TEMPLATES,
     SearchScope,
 )
+from app.security.crypto import hash_password
 from app.security.csrf import get_or_create_token, rotate_token
 from app.web.deps import (
     AdminUser,
@@ -48,8 +51,11 @@ from app.web.services import (
     create_manual_entitlement,
     encrypt_secret,
     entitlement_detail,
+    set_source_maintainers,
+    source_maintainer_ids,
     store_snapshot,
     upsert_entitlement_note,
+    user_can_maintain,
 )
 from app.web.source_forms import (
     FormValidationError,
@@ -224,6 +230,11 @@ async def entitlement_detail_page(
             "user": user,
             "active_nav": "review",
             "detail": detail,
+            "can_maintain": user_can_maintain(session, source_id, user),
+            "all_users": list(
+                session.scalars(select(User).where(User.is_active).order_by(User.username))
+            ),
+            "maintainer_ids": source_maintainer_ids(session, source_id),
         },
     )
 
@@ -268,15 +279,19 @@ async def manual_entitlement_create(
 async def save_entitlement_note(
     request: Request,
     session: SessionDep,
-    user: AdminUser,
+    user: CurrentUser,
     source_id: int,
     account_key: str = Form(...),
     note: str = Form(""),
 ) -> Response:
-    """儲存某成員的自訂註記（管理者）。"""
+    """儲存某成員的自訂註記（管理者或該來源的維護人員）。"""
     detail = entitlement_detail(session, source_id)
     if detail is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "找不到此權限來源。")
+    if not user_can_maintain(session, source_id, user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "您沒有維護此權限來源的權限，請聯繫管理者指派。"
+        )
 
     upsert_entitlement_note(
         session, source_id, account_key.strip().lower(), note.strip(), user.username
@@ -296,6 +311,133 @@ async def save_entitlement_note(
     if request.headers.get("HX-Request"):
         return HTMLResponse('<span class="saved-flag">✓ 已儲存</span>')
     return RedirectResponse(f"/review/source/{source_id}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/review/source/{source_id}/maintainers", dependencies=[CsrfProtected])
+async def set_maintainers(
+    request: Request,
+    session: SessionDep,
+    user: AdminUser,
+    source_id: int,
+) -> Response:
+    """指派某權限來源的維護人員（管理者）。"""
+    src = session.get(DataSource, source_id)
+    if src is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "找不到此權限來源。")
+    # 多個同名 user_ids 勾選：直接從表單取多值，避免 Form(list) 的可變預設值問題
+    form = await request.form()
+    user_ids = [int(v) for v in form.getlist("user_ids") if str(v).isdigit()]
+    set_source_maintainers(session, source_id, user_ids)
+    record_audit(
+        session,
+        user,
+        "set_maintainers",
+        target_type="data_source",
+        target_id=str(source_id),
+        detail=f"設定維護人員 {len(set(user_ids))} 人",
+        ip_address=client_ip(request),
+    )
+    session.commit()
+    return RedirectResponse(f"/review/source/{source_id}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+# ---------------------------------------------------------------------------
+# 帳號管理（Round 10 #2）：新增 AD／本地帳號、設角色、啟用停用
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/users")
+async def admin_users_page(request: Request, session: SessionDep, user: AdminUser) -> Response:
+    users = list(session.scalars(select(User).order_by(User.username)))
+    return templates.TemplateResponse(
+        request,
+        "admin_users.html",
+        {"request": request, "user": user, "active_nav": "admin", "users": users},
+    )
+
+
+@router.post("/admin/users", dependencies=[CsrfProtected])
+async def admin_users_create(
+    request: Request,
+    session: SessionDep,
+    user: AdminUser,
+    username: str = Form(...),
+    account_type: str = Form("ad"),
+    role: str = Form(UserRole.AUDITOR.value),
+    password: str = Form(""),
+) -> Response:
+    """新增登入帳號：可選 AD 帳號（登入時 LDAP 驗證）或本地帳號（設密碼）。"""
+    username = username.strip()
+    if not username:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "請填寫帳號名稱。")
+    if session.scalars(select(User).where(User.username == username)).first():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "此帳號已存在。")
+
+    role = (
+        role if role in (UserRole.ADMIN.value, UserRole.AUDITOR.value) else UserRole.AUDITOR.value
+    )
+    is_local = account_type == "local"
+    password_hash = ""
+    if is_local:
+        if len(password) < 8:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "本地帳號密碼至少 8 字元。")
+        password_hash = hash_password(password)
+
+    session.add(
+        User(
+            username=username,
+            role=role,
+            is_local=is_local,
+            password_hash=password_hash,
+            is_active=True,
+        )
+    )
+    record_audit(
+        session,
+        user,
+        "user_create",
+        target_type="user",
+        target_id=username,
+        detail=f"新增{'本地' if is_local else 'AD'}帳號，角色 {role}",
+        ip_address=client_ip(request),
+    )
+    session.commit()
+    return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/admin/users/{uid}/update", dependencies=[CsrfProtected])
+async def admin_users_update(
+    request: Request,
+    session: SessionDep,
+    user: AdminUser,
+    uid: int,
+    role: str = Form(...),
+    is_active: str = Form(""),
+) -> Response:
+    """調整帳號角色與啟用狀態。防止管理者把自己停用或降級而鎖死系統。"""
+    target = session.get(User, uid)
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "找不到此帳號。")
+
+    active = is_active not in ("", "0", "false", "off")
+    if target.id == user.id and (not active or role != UserRole.ADMIN.value):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "不能停用或降級自己的管理者帳號（避免把自己鎖在門外）。"
+        )
+    if role in (UserRole.ADMIN.value, UserRole.AUDITOR.value):
+        target.role = role
+    target.is_active = active
+    record_audit(
+        session,
+        user,
+        "user_update",
+        target_type="user",
+        target_id=target.username,
+        detail=f"角色={target.role}、啟用={active}",
+        ip_address=client_ip(request),
+    )
+    session.commit()
+    return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/compare", dependencies=[CsrfProtected])

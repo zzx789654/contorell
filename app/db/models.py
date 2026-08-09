@@ -359,3 +359,23 @@ class EntitlementNote(Base):
     __table_args__ = (
         UniqueConstraint("source_id", "account_key", name="uq_entnote_source_account"),
     )
+
+
+class EntitlementMaintainer(Base):
+    """指派某使用者為某權限來源的「維護人員」（Round 10，規格：各權限表單維護權限）。
+
+    管理者一律可維護所有權限來源；被指派為維護人員者，可維護其負責的來源
+    （填寫／修改該來源的處置註記），但不會取得其他管理者權限。
+    以此達成「各權限表單分別授權維護」而不需要把人升級為管理者。
+    """
+
+    __tablename__ = "entitlement_maintainers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int] = mapped_column(
+        ForeignKey("data_sources.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    __table_args__ = (UniqueConstraint("source_id", "user_id", name="uq_maintainer_source_user"),)
