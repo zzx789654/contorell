@@ -57,14 +57,17 @@
       </td>
       <td class="annotation-cell">
         {% if user.is_admin %}
-          <form method="post" action="/review/source/{{ src.id }}/note" class="inline-form">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
-            <input type="hidden" name="account_key" value="{{ r.account_key }}">
+          {# 自動儲存：輸入後 change 或停止打字 0.8 秒即送出（規格第 3 點）#}
+          <div class="inline-form">
             <label class="sr-only" for="note-{{ loop.index }}">{{ r.identifier }} 的註記</label>
             <input type="text" id="note-{{ loop.index }}" name="note" value="{{ r.note }}"
-                   placeholder="填寫處置說明⋯⋯" maxlength="500">
-            <button type="submit" class="btn btn-small">儲存</button>
-          </form>
+                   placeholder="填寫處置說明（自動儲存）⋯⋯" maxlength="500"
+                   hx-post="/review/source/{{ src.id }}/note"
+                   hx-trigger="change, keyup changed delay:800ms"
+                   hx-vals='{"account_key": "{{ r.account_key }}"}'
+                   hx-target="#save-{{ loop.index }}" hx-swap="innerHTML">
+            <span id="save-{{ loop.index }}" class="save-status" aria-live="polite"></span>
+          </div>
         {% else %}
           {{ r.note or '—' }}
         {% endif %}

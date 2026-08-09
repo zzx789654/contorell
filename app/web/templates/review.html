@@ -60,8 +60,92 @@
     </div>
   {% endif %}
 
+  {# 權限來源分類（規格第 1、5 點）：AD 來源 vs 手動清單 #}
+  <h2>權限來源</h2>
+  <div class="summary-cards">
+    <section class="tool-card">
+      <div class="page-header">
+        <h3 style="margin:0">🗄️ AD 來源</h3>
+        {% if user.is_admin %}<a href="/sources/new" class="btn btn-small">＋ 新增 AD 群組</a>{% endif %}
+      </div>
+      <p class="field-hint">從 AD 群組抓取成員（LDAPS／StartTLS，每個來源可自選連線方式）。</p>
+      {% if ad_sources %}
+        <ul class="source-chips">
+          {% for src in ad_sources %}
+            <li>
+              <a href="/review/source/{{ src.id }}">{{ src.name }}</a>
+              <span class="muted">（{{ s.granted_counts.get(src.name, 0) }} 人{% if s.anomaly_counts.get(src.name, 0) %}・<span class="risk-high">{{ s.anomaly_counts[src.name] }} 異常</span>{% endif %}）</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">尚無 AD 來源權限群組。</p>
+      {% endif %}
+    </section>
+
+    <section class="tool-card">
+      <div class="page-header">
+        <h3 style="margin:0">✍️ 手動清單</h3>
+        {% if user.is_admin %}<a href="/review/manual" class="btn btn-small">＋ 手動新增清單</a>{% endif %}
+      </div>
+      <p class="field-hint">貼上帳號清單（KEY-IN）；是否仍在職由主檔自動判定。</p>
+      {% if manual_sources %}
+        <ul class="source-chips">
+          {% for src in manual_sources %}
+            <li>
+              <a href="/review/source/{{ src.id }}">{{ src.name }}</a>
+              <span class="muted">（{{ s.granted_counts.get(src.name, 0) }} 人{% if s.anomaly_counts.get(src.name, 0) %}・<span class="risk-high">{{ s.anomaly_counts[src.name] }} 異常</span>{% endif %}）</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">尚無手動清單。</p>
+      {% endif %}
+    </section>
+  </div>
+
   {# 主矩陣：人員 × 權限 #}
-  <h2>人員權限矩陣</h2>
+  <div class="toolbar">
+    <h2 style="margin:0">人員權限矩陣</h2>
+    <span class="muted">顯示 {{ filtered_people|length }} / {{ total_people }} 人</span>
+  </div>
+
+  {# 搜尋與篩選（規格第 4 點）#}
+  <form method="get" action="/" class="filter-form" role="search" aria-label="篩選人員">
+    <div class="field-inline">
+      <label for="f-q" class="sr-only">搜尋</label>
+      <input type="search" id="f-q" name="q" value="{{ filters.q }}"
+             placeholder="搜尋 工號 / 姓名 / 信箱⋯⋯">
+    </div>
+    <div class="field-inline">
+      <label for="f-dept">部門</label>
+      <select id="f-dept" name="dept">
+        <option value="">全部</option>
+        {% for d in departments %}
+          <option value="{{ d }}" {% if filters.dept == d %}selected{% endif %}>{{ d }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field-inline">
+      <label for="f-perm">權限</label>
+      <select id="f-perm" name="perm">
+        <option value="">全部</option>
+        {% for name in s.entitlement_names %}
+          <option value="{{ name }}" {% if filters.perm == name %}selected{% endif %}>{{ name }}</option>
+        {% endfor %}
+      </select>
+      <select id="f-has" name="has" aria-label="有或無此權限">
+        <option value="" {% if not filters.has %}selected{% endif %}>有／無</option>
+        <option value="yes" {% if filters.has == 'yes' %}selected{% endif %}>有</option>
+        <option value="no" {% if filters.has == 'no' %}selected{% endif %}>無（缺漏）</option>
+      </select>
+    </div>
+    <button type="submit" class="btn btn-small">篩選</button>
+    {% if filters.q or filters.dept or filters.perm %}
+      <a href="/" class="btn btn-small">清除</a>
+    {% endif %}
+  </form>
+
   <div class="result-table" role="region" aria-label="人員權限矩陣" tabindex="0">
     <table class="data-table">
       <caption class="sr-only">每列一位在職人員，每個權限群組一欄，✓ 表示具有該權限</caption>
@@ -81,7 +165,10 @@
         </tr>
       </thead>
       <tbody>
-        {% for p in review.people %}
+        {% if not filtered_people %}
+          <tr><td colspan="{{ 8 + s.entitlement_names|length }}" class="muted" style="text-align:center;padding:1.5rem">沒有符合條件的人員。</td></tr>
+        {% endif %}
+        {% for p in filtered_people %}
           {% set a = p.account %}
           {% set attr = a.attributes or {} %}
           <tr>

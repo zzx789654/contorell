@@ -22,8 +22,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app.db.models import (  # noqa: E402
     Base,
-    DataSource,
-    SourceType,
     User,
     UserRole,
 )
@@ -403,14 +401,15 @@ class TestComparisonValidation:
 class TestEmptyStates:
     """UI 六種狀態之一：empty state 必須存在且有指引。"""
 
-    def test_home_shows_guidance_when_no_sources(self, client):
+    def test_home_shows_guidance_when_no_master(self, client):
+        # Round 9：首頁改為權限檢視；無人員主檔時顯示引導。
         create_user("boss", UserRole.ADMIN.value)
         login(client, "boss")
 
         response = client.get("/")
 
         assert response.status_code == 200
-        assert "還需要設定資料來源" in response.text
+        assert "還需要一份" in response.text
 
     def test_sources_page_shows_empty_state(self, client):
         create_user("boss", UserRole.ADMIN.value)
@@ -432,17 +431,12 @@ class TestEmptyStates:
 class TestRoleVisibility:
     """無權限狀態：稽核者應看到明確說明，而非壞掉的按鈕。"""
 
-    def test_auditor_sees_readonly_notice(self, client):
+    def test_auditor_does_not_see_admin_actions(self, client):
+        # Round 9：權限檢視首頁，稽核者（唯讀）不應看到管理者專屬動作。
         create_user("auditor", UserRole.AUDITOR.value)
-        with SessionLocal() as session:
-            session.add(
-                DataSource(name="AD", source_type=SourceType.LDAP.value, is_authoritative=True)
-            )
-            session.add(DataSource(name="ERP", source_type=SourceType.API.value))
-            session.commit()
-
         login(client, "auditor")
         response = client.get("/")
 
-        assert "稽核者" in response.text
-        assert "無法執行比對" in response.text
+        assert response.status_code == 200
+        assert "稽核者" in response.text  # 頁首角色標記
+        assert "手動新增權限名單" not in response.text  # 管理者專屬

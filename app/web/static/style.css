@@ -946,3 +946,14 @@ textarea:focus { border-color: var(--primary); }
 /* 註記輸入框在分頁佔滿欄寬，較好填寫 */
 .annotation-cell .inline-form { width: 100%; flex-wrap: nowrap; }
 .annotation-cell .inline-form input[type="text"] { flex: 1 1 auto; min-width: 0; }
+
+/* --- 註記自動儲存提示（Round 9） --- */
+.save-status { font-size: 0.8rem; color: var(--ok-text); white-space: nowrap; }
+.save-status .saved-flag { margin: 0; }
+.filter-form select, .filter-form input[type="search"] { min-height: 40px; }
+
+/* --- 權限來源分類清單（Round 9 B） --- */
+.source-chips { list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.source-chips li { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.source-chips a { font-weight: 600; }
+.source-chips .risk-high { color: var(--risk-high-text); font-weight: 600; }

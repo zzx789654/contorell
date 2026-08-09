@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Form, HTTPException, Request, status
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import desc, select
 
 from app.auth.service import AuthenticationFailed, AuthService
@@ -116,50 +116,72 @@ async def logout(request: Request) -> Response:
 
 
 # ---------------------------------------------------------------------------
-# 首頁：新增比對（核心動作）
+# 首頁：權限檢視（Round 9 起為主畫面；兩來源比對已自介面移除）
 # ---------------------------------------------------------------------------
 
 
-@router.get("/")
-async def home(request: Request, session: SessionDep, user: CurrentUser) -> Response:
-    sources = session.scalars(
-        select(DataSource).where(DataSource.is_active).order_by(DataSource.name)
-    ).all()
+def _filter_people(review, q: str, dept: str, perm: str, has: str):
+    """依搜尋字串／部門／權限條件篩選矩陣人員列（Round 9，規格第 4 點）。"""
+    people = list(review.people) if review else []
+    if not review:
+        return people, []
 
-    recent = session.scalars(
-        select(Comparison).order_by(desc(Comparison.compared_at)).limit(10)
-    ).all()
-
-    return templates.TemplateResponse(
-        request,
-        "index.html",
+    departments = sorted(
         {
-            "request": request,
-            "user": user,
-            "sources": sources,
-            "recent_comparisons": recent,
-        },
+            (p.account.attributes or {}).get("department", "")
+            for p in people
+            if (p.account.attributes or {}).get("department")
+        }
     )
 
+    ql = q.strip().lower()
+    result = people
+    if ql:
 
-@router.get("/review")
-async def access_review_page(request: Request, session: SessionDep, user: CurrentUser) -> Response:
-    """權限檢視主畫面（Round 8）：AD 已啟用人員 × 各權限群組矩陣 + 異常。
+        def _match(p):
+            a = p.account
+            attr = a.attributes or {}
+            hay = " ".join(
+                [a.identifier, a.display_name, a.email, str(attr.get("employeeID", ""))]
+            ).lower()
+            return ql in hay
 
-    以權威來源（AD）的最新快照為主檔，其餘啟用來源為權限群組。
-    尚未設定權威主檔或主檔無快照時，``review`` 為 None，由模板顯示引導。
-    """
+        result = [p for p in result if _match(p)]
+    if dept:
+        result = [p for p in result if (p.account.attributes or {}).get("department", "") == dept]
+    if perm and perm in review.summary.entitlement_names and has in ("yes", "no"):
+        want = has == "yes"
+        result = [p for p in result if p.access.get(perm, False) == want]
+    return result, departments
+
+
+@router.get("/")
+async def home(
+    request: Request,
+    session: SessionDep,
+    user: CurrentUser,
+    q: str = "",
+    dept: str = "",
+    perm: str = "",
+    has: str = "",
+) -> Response:
+    """權限檢視主畫面（首頁）：AD 已啟用人員 × 各權限群組矩陣 + 異常，含搜尋與篩選。"""
     review = build_review(session)
     master_source = session.scalars(
         select(DataSource).where(DataSource.is_active, DataSource.is_authoritative).limit(1)
     ).first()
-    # 權限群組名稱 → 來源 id，供矩陣連到各自的分頁
-    entitlement_links = {
-        s.name: s.id
-        for s in session.scalars(
-            select(DataSource).where(DataSource.is_active, DataSource.is_authoritative.is_(False))
+    entitlement_sources = list(
+        session.scalars(
+            select(DataSource)
+            .where(DataSource.is_active, DataSource.is_authoritative.is_(False))
+            .order_by(DataSource.name)
         )
-    }
+    )
+    entitlement_links = {s.name: s.id for s in entitlement_sources}
+    # 依型態分類（規格第 1 點）：AD 來源（LDAP/API） vs 手動清單（File / KEY-IN）
+    ad_sources = [s for s in entitlement_sources if s.source_type != SourceType.FILE.value]
+    manual_sources = [s for s in entitlement_sources if s.source_type == SourceType.FILE.value]
+    filtered_people, departments = _filter_people(review, q, dept, perm, has)
     return templates.TemplateResponse(
         request,
         "review.html",
@@ -170,8 +192,20 @@ async def access_review_page(request: Request, session: SessionDep, user: Curren
             "review": review,
             "master_source": master_source,
             "entitlement_links": entitlement_links,
+            "ad_sources": ad_sources,
+            "manual_sources": manual_sources,
+            "filtered_people": filtered_people,
+            "departments": departments,
+            "total_people": len(review.people) if review else 0,
+            "filters": {"q": q, "dept": dept, "perm": perm, "has": has},
         },
     )
+
+
+@router.get("/review")
+async def review_redirect() -> Response:
+    """舊網址相容：/review 導向首頁。"""
+    return RedirectResponse("/", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
 @router.get("/review/source/{source_id}")
@@ -257,6 +291,10 @@ async def save_entitlement_note(
         ip_address=client_ip(request),
     )
     session.commit()
+
+    # HTMX 自動儲存：回一個小小的「已儲存」提示，不整頁重載（規格第 3 點）
+    if request.headers.get("HX-Request"):
+        return HTMLResponse('<span class="saved-flag">✓ 已儲存</span>')
     return RedirectResponse(f"/review/source/{source_id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
