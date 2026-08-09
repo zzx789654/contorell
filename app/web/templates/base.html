@@ -22,6 +22,9 @@
         <li><a href="/" {% if active_nav == 'review' %}aria-current="page"{% endif %}>權限檢視</a></li>
         <li><a href="/sources" {% if active_nav == 'sources' %}aria-current="page"{% endif %}>資料來源</a></li>
         <li><a href="/audit" {% if active_nav == 'audit' %}aria-current="page"{% endif %}>稽核軌跡</a></li>
+        {% if user.is_admin %}
+          <li><a href="/admin/users" {% if active_nav == 'admin' %}aria-current="page"{% endif %}>帳號管理</a></li>
+        {% endif %}
       </ul>
       <div class="user-box">
         <span class="user-name">

@@ -296,3 +296,86 @@ class TestHomeFilterAutosave:
         with SessionLocal() as db:
             note = db.query(EntitlementNote).filter_by(source_id=sid, account_key="0009").one()
             assert note.note == "處理中"
+
+
+class TestAccountManagement:
+    def test_admin_can_open_users_page(self, client):
+        login_admin(client)
+        assert client.get("/admin/users").status_code == 200
+
+    def test_auditor_cannot_open_users_page(self, client):
+        from app.db.models import UserRole
+
+        _make_user("aud", UserRole.AUDITOR.value)
+        login(client, "aud")
+        assert client.get("/admin/users").status_code == 403
+
+    def test_admin_creates_ad_user(self, client):
+        from app.db.models import User
+
+        login_admin(client)
+        r = client.post(
+            "/admin/users",
+            data={
+                "username": "jdoe",
+                "account_type": "ad",
+                "role": "auditor",
+                "csrf_token": get_csrf(client),
+            },
+            follow_redirects=False,
+        )
+        assert r.status_code == 303
+        with SessionLocal() as db:
+            u = db.query(User).filter_by(username="jdoe").one()
+            assert u.is_local is False
+            assert u.role == "auditor"
+
+    def test_admin_cannot_self_deactivate(self, client):
+        from app.db.models import User
+
+        login_admin(client)  # rvadmin
+        with SessionLocal() as db:
+            myid = db.query(User).filter_by(username="rvadmin").one().id
+        r = client.post(
+            f"/admin/users/{myid}/update",
+            data={"role": "admin", "is_active": "", "csrf_token": get_csrf(client)},
+            follow_redirects=False,
+        )
+        assert r.status_code == 400
+
+
+class TestMaintainerPermission:
+    def test_assigned_maintainer_can_edit_note(self, client):
+        from app.db.models import User, UserRole
+
+        sid = _seed()
+        _make_user("m1", UserRole.AUDITOR.value)
+        login_admin(client)
+        with SessionLocal() as db:
+            m1id = db.query(User).filter_by(username="m1").one().id
+        client.post(
+            f"/review/source/{sid}/maintainers",
+            data={"user_ids": str(m1id), "csrf_token": get_csrf(client)},
+            follow_redirects=False,
+        )
+        # 以維護人員 m1 登入，應可填註記
+        login(client, "m1")
+        r = client.post(
+            f"/review/source/{sid}/note",
+            data={"account_key": "0009", "note": "由維護人員填", "csrf_token": get_csrf(client)},
+            follow_redirects=False,
+        )
+        assert r.status_code == 303
+
+    def test_non_maintainer_auditor_cannot_edit_note(self, client):
+        from app.db.models import UserRole
+
+        sid = _seed()
+        _make_user("aud2", UserRole.AUDITOR.value)
+        login(client, "aud2")
+        r = client.post(
+            f"/review/source/{sid}/note",
+            data={"account_key": "0009", "note": "x", "csrf_token": get_csrf(client)},
+            follow_redirects=False,
+        )
+        assert r.status_code == 403

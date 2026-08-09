@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% set active_nav = 'admin' %}
+{% block title %}帳號管理 — contorell{% endblock %}
+
+{% block content %}
+<h1>帳號管理</h1>
+<p class="lead">建立登入帳號並指派角色。AD 帳號登入時以 LDAP 驗證（不儲存密碼）；本地帳號作為 AD 故障時的退路。</p>
+
+{# 新增帳號 #}
+<section class="tool-card">
+  <h2 style="margin-top:0">新增帳號</h2>
+  <form method="post" action="/admin/users" class="config-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+    <div class="form-row">
+      <label for="username">帳號名稱</label>
+      <input type="text" id="username" name="username" required
+             placeholder="AD 登入帳號（sAMAccountName）或本地帳號名" aria-describedby="u-hint">
+      <p id="u-hint" class="field-hint">AD 帳號請填網域登入名；大小寫不影響。</p>
+    </div>
+    <div class="form-row">
+      <span class="label-like">帳號類型</span>
+      <label class="inline-check">
+        <input type="radio" name="account_type" value="ad" checked onclick="document.getElementById('pw-row').hidden=true">
+        AD 帳號（登入時 LDAP 驗證，不儲存密碼）
+      </label>
+      <label class="inline-check">
+        <input type="radio" name="account_type" value="local" onclick="document.getElementById('pw-row').hidden=false">
+        本地帳號（設定密碼，AD 故障時的退路）
+      </label>
+    </div>
+    <div class="form-row" id="pw-row" hidden>
+      <label for="password">密碼（本地帳號）</label>
+      <input type="password" id="password" name="password" autocomplete="new-password" minlength="8"
+             placeholder="至少 8 字元">
+    </div>
+    <div class="form-row">
+      <label for="role">角色</label>
+      <select id="role" name="role">
+        <option value="auditor">稽核者（唯讀）</option>
+        <option value="admin">管理者</option>
+      </select>
+      <p class="field-hint">維護「特定權限來源」的權限，另在該來源分頁指派維護人員，不需給管理者。</p>
+    </div>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">新增帳號</button></div>
+  </form>
+</section>
+
+{# 現有帳號 #}
+<h2>現有帳號</h2>
+<table class="data-table">
+  <caption class="sr-only">系統帳號清單</caption>
+  <thead>
+    <tr>
+      <th scope="col">帳號</th>
+      <th scope="col">類型</th>
+      <th scope="col">角色 / 狀態</th>
+      <th scope="col"><span class="sr-only">操作</span></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for u in users %}
+    <tr>
+      <td>{{ u.display_name or u.username }}<br><span class="mono muted">{{ u.username }}</span></td>
+      <td>{% if u.is_local %}<span class="tag">本地</span>{% else %}<span class="tag tag-ok">AD</span>{% endif %}</td>
+      <td>
+        <form method="post" action="/admin/users/{{ u.id }}/update" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+          <label class="sr-only" for="role-{{ u.id }}">{{ u.username }} 的角色</label>
+          <select id="role-{{ u.id }}" name="role">
+            <option value="auditor" {% if not u.is_admin %}selected{% endif %}>稽核者</option>
+            <option value="admin" {% if u.is_admin %}selected{% endif %}>管理者</option>
+          </select>
+          <label class="inline-check" style="min-height:auto">
+            <input type="checkbox" name="is_active" value="1" {% if u.is_active %}checked{% endif %}> 啟用
+          </label>
+          <button type="submit" class="btn btn-small">儲存</button>
+        </form>
+      </td>
+      <td>{% if u.id == user.id %}<span class="muted">（目前登入）</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
