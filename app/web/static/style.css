@@ -146,9 +146,9 @@ summary:focus-visible {
 /* --- 版面 --- */
 
 .container {
-  max-width: 1400px;
+  max-width: 1500px;
   margin: 0 auto;
-  padding: 2.25rem 1.5rem 4rem;
+  padding: 1.75rem 1.75rem 3rem;
 }
 
 .site-header {
@@ -245,10 +245,10 @@ summary:focus-visible {
 }
 
 h1 { font-size: 1.8rem; margin: 0 0 0.5rem; letter-spacing: -0.02em; }
-h2 { font-size: 1.3rem; margin: 2.25rem 0 0.75rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.3rem; margin: 1.75rem 0 0.75rem; letter-spacing: -0.01em; }
 h3 { font-size: 1.05rem; margin: 0 0 0.5rem; }
 
-.lead { color: var(--text-muted); margin: 0 0 1.5rem; font-size: 1.02rem; }
+.lead { color: var(--text-muted); margin: 0 0 1.25rem; font-size: 1.02rem; }
 .muted { color: var(--text-muted); }
 .mono { font-family: "Cascadia Code", Consolas, ui-monospace, monospace; font-size: 0.9em; }
 .hint { font-size: 0.85rem; color: var(--text-muted); font-weight: 400; margin: 0.25rem 0 0; }
@@ -369,16 +369,16 @@ textarea:focus { border-color: var(--primary); }
 
 .summary-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 1rem;
-  margin: 1.5rem 0;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.85rem;
+  margin: 1.25rem 0;
 }
 
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1.15rem 1.25rem;
+  padding: 0.9rem 1.1rem;
   box-shadow: var(--shadow-sm);
 }
 .card-label { margin: 0; font-size: 0.9rem; color: var(--text-muted); }
@@ -407,7 +407,7 @@ textarea:focus { border-color: var(--primary); }
 
 .data-table th,
 .data-table td {
-  padding: 0.7rem 0.85rem;
+  padding: 0.55rem 0.8rem;
   text-align: left;
   border-bottom: 1px solid var(--border);
   vertical-align: top;
@@ -707,9 +707,14 @@ textarea:focus { border-color: var(--primary); }
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
-  padding: 1.5rem 1.75rem 1.75rem;
-  margin: 0 0 1.5rem;
+  padding: 1.25rem 1.5rem 1.5rem;
+  margin: 0 0 1.25rem;
   box-shadow: var(--shadow-sm);
+  /* 兩欄自適應：寬螢幕並排、窄螢幕自動落成單欄，消除右側大片留白 */
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+  gap: 0.25rem 2rem;
+  align-items: start;
 }
 
 .config-form legend {
@@ -722,10 +727,17 @@ textarea:focus { border-color: var(--primary); }
 .fieldset-hint {
   color: var(--text-muted);
   font-size: 0.92rem;
-  margin: 0 0 1.25rem;
+  margin: 0 0 0.5rem;
+}
+/* 說明文字、textarea、勾選群組、欄位矩陣一律橫跨整列 */
+.config-form .fieldset-hint,
+.config-form .form-row:has(textarea),
+.config-form .form-row:has(.checkbox-grid),
+.config-form .form-row.form-check {
+  grid-column: 1 / -1;
 }
 
-.form-row { margin-bottom: 1.5rem; }
+.form-row { margin-bottom: 1rem; }
 .form-row:last-child { margin-bottom: 0; }
 
 .form-row > label,
@@ -741,8 +753,9 @@ textarea:focus { border-color: var(--primary); }
 .form-row select,
 .form-row textarea {
   width: 100%;
-  max-width: 34rem;
 }
+/* 單欄的長輸入（textarea）給個舒適上限，避免一行過長難讀 */
+.config-form .form-row:has(textarea) textarea { max-width: 60rem; }
 
 .required { color: var(--error-text); }
 
@@ -883,8 +896,8 @@ textarea:focus { border-color: var(--primary); }
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
-  padding: 1.4rem 1.6rem;
-  margin-bottom: 1.25rem;
+  padding: 1.15rem 1.3rem;
+  margin-bottom: 1rem;
   box-shadow: var(--shadow-sm);
 }
 .tool-card h3 { margin-top: 0; }
