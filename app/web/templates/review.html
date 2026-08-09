@@ -60,6 +60,50 @@
     </div>
   {% endif %}
 
+  {# 權限來源分類（規格第 1、5 點）：AD 來源 vs 手動清單 #}
+  <h2>權限來源</h2>
+  <div class="summary-cards">
+    <section class="tool-card">
+      <div class="page-header">
+        <h3 style="margin:0">🗄️ AD 來源</h3>
+        {% if user.is_admin %}<a href="/sources/new" class="btn btn-small">＋ 新增 AD 群組</a>{% endif %}
+      </div>
+      <p class="field-hint">從 AD 群組抓取成員（LDAPS／StartTLS，每個來源可自選連線方式）。</p>
+      {% if ad_sources %}
+        <ul class="source-chips">
+          {% for src in ad_sources %}
+            <li>
+              <a href="/review/source/{{ src.id }}">{{ src.name }}</a>
+              <span class="muted">（{{ s.granted_counts.get(src.name, 0) }} 人{% if s.anomaly_counts.get(src.name, 0) %}・<span class="risk-high">{{ s.anomaly_counts[src.name] }} 異常</span>{% endif %}）</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">尚無 AD 來源權限群組。</p>
+      {% endif %}
+    </section>
+
+    <section class="tool-card">
+      <div class="page-header">
+        <h3 style="margin:0">✍️ 手動清單</h3>
+        {% if user.is_admin %}<a href="/review/manual" class="btn btn-small">＋ 手動新增清單</a>{% endif %}
+      </div>
+      <p class="field-hint">貼上帳號清單（KEY-IN）；是否仍在職由主檔自動判定。</p>
+      {% if manual_sources %}
+        <ul class="source-chips">
+          {% for src in manual_sources %}
+            <li>
+              <a href="/review/source/{{ src.id }}">{{ src.name }}</a>
+              <span class="muted">（{{ s.granted_counts.get(src.name, 0) }} 人{% if s.anomaly_counts.get(src.name, 0) %}・<span class="risk-high">{{ s.anomaly_counts[src.name] }} 異常</span>{% endif %}）</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">尚無手動清單。</p>
+      {% endif %}
+    </section>
+  </div>
+
   {# 主矩陣：人員 × 權限 #}
   <div class="toolbar">
     <h2 style="margin:0">人員權限矩陣</h2>

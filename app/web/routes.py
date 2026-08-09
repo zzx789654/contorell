@@ -170,12 +170,17 @@ async def home(
     master_source = session.scalars(
         select(DataSource).where(DataSource.is_active, DataSource.is_authoritative).limit(1)
     ).first()
-    entitlement_links = {
-        s.name: s.id
-        for s in session.scalars(
-            select(DataSource).where(DataSource.is_active, DataSource.is_authoritative.is_(False))
+    entitlement_sources = list(
+        session.scalars(
+            select(DataSource)
+            .where(DataSource.is_active, DataSource.is_authoritative.is_(False))
+            .order_by(DataSource.name)
         )
-    }
+    )
+    entitlement_links = {s.name: s.id for s in entitlement_sources}
+    # 依型態分類（規格第 1 點）：AD 來源（LDAP/API） vs 手動清單（File / KEY-IN）
+    ad_sources = [s for s in entitlement_sources if s.source_type != SourceType.FILE.value]
+    manual_sources = [s for s in entitlement_sources if s.source_type == SourceType.FILE.value]
     filtered_people, departments = _filter_people(review, q, dept, perm, has)
     return templates.TemplateResponse(
         request,
@@ -187,6 +192,8 @@ async def home(
             "review": review,
             "master_source": master_source,
             "entitlement_links": entitlement_links,
+            "ad_sources": ad_sources,
+            "manual_sources": manual_sources,
             "filtered_people": filtered_people,
             "departments": departments,
             "total_people": len(review.people) if review else 0,
